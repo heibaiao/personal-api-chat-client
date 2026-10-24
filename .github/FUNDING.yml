@@ -1,0 +1,2 @@
+﻿# 显示仓库右上角的 Sponsor 按钮，指向 README 的「支持本项目」小节
+custom: ["https://github.com/heibaiao/personal-api-chat-client#支持本项目"]
