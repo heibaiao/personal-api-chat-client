@@ -1,66 +1,74 @@
 @echo off
-chcp 65001 >nul
+setlocal enabledelayedexpansion
 cd /d "%~dp0"
 
+set "GIT="
+for %%P in ("%ProgramFiles%\Git\cmd\git.exe" "%ProgramFiles(x86)%\Git\cmd\git.exe" "%LOCALAPPDATA%\Programs\Git\cmd\git.exe") do (
+  if not defined GIT if exist %%P set "GIT=%%~P"
+)
+if not defined GIT (
+  for /f "delims=" %%G in ('where git 2^>nul') do if not defined GIT set "GIT=%%G"
+)
+
 echo ============================================
-echo  Personal API Chat Client - 推送到 GitHub
+echo  Personal API Chat Client - push to GitHub
 echo ============================================
 echo.
 
-where git >nul 2>nul
-if errorlevel 1 (
-  echo [X] 没找到 git 命令。请先安装 Git for Windows 并重开窗口。
-  pause
-  exit /b 1
+if not defined GIT (
+  echo [X] git not found.
+  echo     Install Git for Windows: https://git-scm.com/download/win
+  goto :end
 )
+echo git: %GIT%
+echo.
 
-echo [1/4] 检查网络...
+echo [1/4] Checking network...
 powershell -NoProfile -Command "if (Test-NetConnection github.com -Port 443 -InformationLevel Quiet -WarningAction SilentlyContinue) { exit 0 } else { exit 1 }"
 if errorlevel 1 (
-  echo [X] 连不上 github.com:443。请检查网络 / 代理后重试。
-  pause
-  exit /b 1
+  echo [X] Cannot reach github.com:443.
+  echo     Check network / proxy / VPN, then run this again.
+  goto :end
 )
 
-echo [2/4] 配置远程地址...
-git remote get-url origin >nul 2>nul
+echo [2/4] Configuring remote...
+"%GIT%" remote get-url origin >nul 2>nul
 if errorlevel 1 (
-  git remote add origin https://github.com/heibaiao/personal-api-chat-client.git
+  "%GIT%" remote add origin https://github.com/heibaiao/personal-api-chat-client.git
 ) else (
-  git remote set-url origin https://github.com/heibaiao/personal-api-chat-client.git
+  "%GIT%" remote set-url origin https://github.com/heibaiao/personal-api-chat-client.git
 )
-git remote -v
+"%GIT%" remote -v
 
 echo.
-echo [3/4] 推送 main...
-git push -u origin main
-if errorlevel 1 goto :err
+echo [3/4] Pushing main...
+"%GIT%" push -u origin main
+if errorlevel 1 goto :pusherr
 
 echo.
-echo [4/4] 创建并推送标签 v1.0.0...
-git tag -a v1.0.0 -m "V1.0 (αpiv0004)" 2>nul
-git push origin v1.0.0
-if errorlevel 1 (
-  echo [!] 标签推送失败（可能已存在），继续。
-)
+echo [4/4] Creating and pushing tag v1.0.0...
+"%GIT%" tag -a v1.0.0 -m "V1.0 (apiv0004)" 2>nul
+"%GIT%" push origin v1.0.0
+if errorlevel 1 echo [!] Tag push skipped or already exists.
 
 echo.
 echo ============================================
-echo  完成！接下来手动做最后一步：
-echo  1. 打开 https://github.com/heibaiao/personal-api-chat-client/releases
-echo  2. Draft a new release - 选标签 v1.0.0
-echo  3. 标题填 "V1.0 (αpiv0004)"
-echo  4. 上传 dist\PersonalAPIChatClient-V1.0-portable-win64.zip
+echo  Done. Last manual step:
+echo   1. Open https://github.com/heibaiao/personal-api-chat-client/releases
+echo   2. Draft a new release, choose tag v1.0.0
+echo   3. Upload PersonalAPIChatClient-V1.0-portable-win64.zip
 echo ============================================
-pause
-exit /b 0
+goto :end
 
-:err
+:pusherr
 echo.
-echo [X] 推送失败。常见原因：
-echo   - 仓库还没在网页上创建
-echo   - 需要登录：用 Personal Access Token 或 SSH
-echo   - 网络/代理问题
-echo 详细排查见 docs\PUBLISH.md 第 10 节。
+echo [X] Push failed. Common causes:
+echo     - repository not created on github.com yet
+echo     - not logged in (use a Personal Access Token or SSH)
+echo     - network / proxy problem
+echo   See docs\PUBLISH.md section 10.
+
+:end
+echo.
 pause
-exit /b 1
+endlocal
