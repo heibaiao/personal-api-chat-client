@@ -23,7 +23,7 @@ from openai import OpenAI
 APP_NAME = "个人API调用对话系统"
 APP_NAME_EN = "Personal API Chat Client"
 APP_PUBLISHER = "heibaiao"
-APP_VERSION = "αpiv0004-2"          # 内部版本号（只在「关于」页左下角展示）
+APP_VERSION = "αpiv0004-3"          # 内部版本号（只在「关于」页左下角展示）
 APP_VERSION_PUBLIC = "V1.0"
 GITHUB_URL = "https://github.com/heibaiao/personal-api-chat-client"      # 对外版本号
 AI_DISPLAY_NAME = "DeepSeek-V4.1-Flash-1017"
@@ -505,8 +505,16 @@ def model_title(cfg):
 
 # 参考计费快照（每 100 万 tokens 的输入/输出价格，货币单位随模型；官方调价后需手动更新）
 # 支持图片输入的模型（多模态）
-VISION_MODELS = {"gpt-4o", "gpt-4o-mini", "gemini-2.0-flash",
-                 "claude-sonnet-4", "grok-4", "doubao-seed-1.6"}
+# 复核结果：仅这些模型的原生接口支持图片输入
+VISION_MODELS = {
+    "gpt-4o": "OpenAI 多模态",
+    "gpt-4o-mini": "OpenAI 多模态",
+    "gemini-2.0-flash": "Google 多模态",
+    "claude-sonnet-4": "Claude 多模态（经 OpenRouter）",
+    "grok-4": "xAI 多模态",
+    "doubao-seed-1.6": "火山方舟多模态",
+    "ernie-4.5": "文心 4.5 原生多模态",
+}
 
 # 上下文窗口（tokens），未列出的按默认值
 CONTEXT_WINDOWS = {
@@ -519,11 +527,14 @@ CONTEXT_WINDOWS = {
 }
 DEFAULT_CONTEXT_WINDOW = 128_000
 
-# 支持“推理强度”调节的模型：供应商参数名
-REASONING_PARAMS = {
-    "qwen-max": ("qwen", "enable_thinking"),
-    "qwen-turbo": ("qwen", "enable_thinking"),
-    "siliconflow-qwen3": ("qwen", "enable_thinking"),
+# 支持“推理强度”调节的模型：参数风格与可选档位
+REASONING_CONFIG = {
+    # 硅基流动托管的 Qwen3：enable_thinking + thinking_budget
+    "siliconflow-qwen3": {"style": "qwen",
+                          "levels": ["默认", "低", "中", "高"]},
+    # 智谱 GLM-4.6 / 火山方舟豆包：thinking.type = enabled / disabled
+    "glm-4.6": {"style": "type", "levels": ["默认", "开启", "关闭"]},
+    "doubao-seed-1.6": {"style": "type", "levels": ["默认", "开启", "关闭"]},
 }
 
 MODEL_PRICING = {
@@ -1546,6 +1557,7 @@ FEATURE_GROUPS = [
     ("界面与交互", [
         ("汉堡菜单", "设置 / 模型 / 导出 三个入口"),
         ("模型选择", "品牌徽标 + 型号，按首字母排序；已导入的置顶"),
+        ("分模型历史", "侧栏只显示当前模型的对话，可切换查看其他模型"),
         ("深度思考", "按模型能力出现，可先推理再作答"),
         ("智能搜索", "联网检索后把结果注入上下文"),
         ("图片输入", "视觉模型可直接读图，失败自动跳过"),
@@ -1556,7 +1568,7 @@ FEATURE_GROUPS = [
     ]),
     ("模型与账户", [
         ("多模型接入", "内置 37 个模型 / 32 个品牌，兼容 OpenAI 接口均可接"),
-        ("推理强度", "支持的模型可调 低 / 中 / 高"),
+        ("推理强度", "支持的模型在输入栏下方可调"),
         ("独立 API Key", "每个模型单独保存密钥，界面只显示脱敏串"),
         ("启动密码", "可在设置里关闭，关闭后启动直接进入"),
         ("余额查询", "在对话里问「余额」即可查询 DeepSeek 账户"),
@@ -1589,9 +1601,9 @@ KNOWN_ISSUES = [
         ("多开写入", "同一目录多开会互相覆盖对话记录"),
         ("平台支持", "仅在 Windows 10/11 验证，未测 Linux/macOS"),
         ("上下文压缩", "超过 20 轮自动摘要，早期细节可能丢失"),
-        ("图片输入", "仅 6 个视觉模型支持，超过 4MB 的图片会被跳过"),
+        ("图片输入", "仅 7 个视觉模型支持，超过 4MB 的图片会被跳过"),
         ("推理强度", "仅 Qwen 系列可调，其他模型固定为默认"),
-        ("暂停生成", "暂停只暂停显示，token 仍会继续产生"),
+        ("停止生成", "已生成内容会保留，可重新生成或编辑提问"),
         ("网络代理", "不支持程序内代理设置，需系统级代理"),
 ]
 
@@ -2126,6 +2138,43 @@ def draw_round_rect(cv, x1, y1, x2, y2, r, fill, outline=None, width=1):
            x1, y2, x1, y2 - r, x1, y1 + r, x1, y1]
     return cv.create_polygon(pts, smooth=True, splinesteps=24,
                              fill=fill, outline=outline or fill, width=width)
+
+
+def make_pill_group(parent, options, holder, on_change, bg=C_BG_MAIN,
+                    font_size=8, height=24):
+    """一组圆角胶囊，holder[0] 为当前值；点击切换并回调。"""
+    f = tkfont.Font(family=FONT_UI, size=font_size)
+    spans = []
+    x = 0
+    for text in options:
+        w = f.measure(text) + 18
+        spans.append((x, x + w, text))
+        x += w + 5
+    cv = tk.Canvas(parent, width=max(40, x - 5), height=height, bg=bg,
+                   highlightthickness=0, bd=0)
+
+    def draw():
+        cv.delete("all")
+        for x1, x2, text in spans:
+            on = (holder[0] == text)
+            draw_round_rect(cv, x1, 2, x2, height - 2, (height - 4) // 2,
+                            C_PRIMARY if on else C_BG_INPUT,
+                            C_PRIMARY if on else C_BORDER, 1)
+            cv.create_text((x1 + x2) / 2, height / 2, text=text,
+                           fill="#ffffff" if on else C_TEXT_DARK,
+                           font=(FONT_UI, font_size))
+
+    def click(e):
+        for x1, x2, text in spans:
+            if x1 <= e.x <= x2:
+                holder[0] = text
+                draw()
+                on_change(text)
+                return
+    cv.bind("<Button-1>", click)
+    draw()
+    cv._redraw = draw
+    return cv
 
 
 def bind_wheel_all(widget, canvas, step=3):
@@ -3064,14 +3113,6 @@ class SettingsDialog:
         self._segment(body, "推理过程", self.reason_var,
                       [("关闭", 0), ("显示", 1)], self._on_reasoning)
 
-        cfg_now = self.app.store.current_cfg()
-        self.reason_level_var = tk.StringVar(
-            value=getattr(self.app, "reasoning_level", "默认"))
-        self._segment(body, "推理强度", self.reason_level_var,
-                      [("默认", "默认"), ("低", "低"), ("中", "中"), ("高", "高")],
-                      self._on_reason_level,
-                      note="" if cfg_now["id"] in REASONING_PARAMS else "当前模型不支持")
-
         self.pwd_var = tk.IntVar(value=1 if self.app.password_required else 0)
         self._segment(body, "启动密码", self.pwd_var,
                       [("需要", 1), ("不需要", 0)], self._on_password)
@@ -3145,11 +3186,6 @@ class SettingsDialog:
         self.app.send_with_ctrl = ctrl
         self.app.composer.set_send_mode(ctrl)
         self.app.save_setting("send_with_ctrl", ctrl)
-
-    def _on_reason_level(self):
-        level = self.reason_level_var.get()
-        self.app.reasoning_level = level
-        self.app.save_setting("reasoning_level", level)
 
     def _on_password(self):
         want = bool(self.pwd_var.get())
@@ -3833,11 +3869,9 @@ class Composer(tk.Frame):
         self.hint.pack(side=tk.LEFT, padx=(12, 0))
 
         self.gen_box = tk.Frame(bar, bg=C_BG_MAIN)
-        self.pause_btn = None
-        self._make_pause_btn("暂停")
         self.stop_btn = make_rounded_button(
-            self.gen_box, "停止", self.app.stop_generation, bg=C_BG_INPUT,
-            fg=C_DELETE, hover_bg="#fee2e2", font=(FONT_UI, 9), width=64)
+            self.gen_box, "停止生成", self.app.stop_generation, bg=C_BG_INPUT,
+            fg=C_DELETE, hover_bg="#fee2e2", font=(FONT_UI, 9), width=88)
         self.stop_btn.pack(side=tk.LEFT)
 
         self.send_btn = make_rounded_button(
@@ -3845,13 +3879,34 @@ class Composer(tk.Frame):
             hover_bg=C_PRIMARY_HOVER, font=(FONT_UI, 10, "bold"))
         self.send_btn.pack(side=tk.RIGHT)
 
-    def _make_pause_btn(self, text):
-        if self.pause_btn is not None:
-            self.pause_btn.destroy()
-        self.pause_btn = make_rounded_button(
-            self.gen_box, text, self.app.toggle_pause, bg=C_BG_INPUT,
-            fg=C_TEXT_DARK, hover_bg=C_BORDER, font=(FONT_UI, 9), width=64)
-        self.pause_btn.pack(side=tk.LEFT, padx=(0, 6))
+        # 推理强度：仅在模型支持时显示在输入栏下方
+        self.reason_row = tk.Frame(self, bg=C_BG_MAIN)
+        self._reason_holder = [getattr(self.app, "reasoning_level", "默认")]
+        self._reason_group = None
+        self._sync_reason_row()
+
+    def _sync_reason_row(self):
+        cfg = self.app.store.current_cfg()
+        conf = REASONING_CONFIG.get(cfg.get("id"))
+        for w in self.reason_row.winfo_children():
+            w.destroy()
+        self._reason_group = None
+        if not conf:
+            self.reason_row.pack_forget()
+            return
+        levels = conf["levels"]
+        if self._reason_holder[0] not in levels:
+            self._reason_holder[0] = levels[0]
+        Label(self.reason_row, text="推理强度", bg=C_BG_MAIN, fg=C_TEXT_MUTED,
+              font=(FONT_UI, 8)).pack(side=tk.LEFT)
+        self._reason_group = make_pill_group(
+            self.reason_row, levels, self._reason_holder, self._on_reason_change)
+        self._reason_group.pack(side=tk.LEFT, padx=(8, 0))
+        self.reason_row.pack(fill=tk.X, padx=20, pady=(0, 6))
+
+    def _on_reason_change(self, level):
+        self.app.reasoning_level = level
+        self.app.save_setting("reasoning_level", level)
 
     def set_generating(self, on):
         try:
@@ -3859,13 +3914,6 @@ class Composer(tk.Frame):
                 self.gen_box.pack(side=tk.RIGHT, padx=(0, 8))
             else:
                 self.gen_box.pack_forget()
-                self.set_paused(False)
-        except Exception:
-            pass
-
-    def set_paused(self, paused):
-        try:
-            self._make_pause_btn("继续" if paused else "暂停")
         except Exception:
             pass
 
@@ -3943,6 +3991,18 @@ class Composer(tk.Frame):
     def clear_text(self):
         self.text.delete("1.0", tk.END)
         self._show_placeholder()
+
+    def set_text(self, text):
+        """把已有内容放回输入框（编辑上一条提问用）。"""
+        self._placeholder_on = False
+        self.text.configure(fg=C_TEXT_DARK)
+        self.text.delete("1.0", tk.END)
+        self.text.insert("1.0", text)
+        self.text.mark_set("insert", "end-1c")
+        try:
+            self.text.see("end")
+        except tk.TclError:
+            pass
 
     def set_enabled(self, enabled):
         self._enabled = enabled
@@ -4044,6 +4104,10 @@ class Composer(tk.Frame):
                 self.think_pill.pack_forget()
             self.deep_think.set(False)
             self.think_pill.set_on(False)
+        try:
+            self._sync_reason_row()
+        except Exception:
+            pass
 
 
 class PillToggle(tk.Canvas):
@@ -4236,6 +4300,7 @@ class ChatApp:
         self._expanded_reasoning = set()
         self._think_lines = {}
         self._regen_lines = {}
+        self._edit_lines = {}
         self._stop_flags = set()
 
         self.renderer = MessageRenderer(self)
@@ -4315,6 +4380,10 @@ class ChatApp:
         except Exception:
             return
         cid = self.data.get("current_id")
+        for (c, i), ln in list(self._edit_lines.items()):
+            if c == cid and ln == line:
+                self.edit_last_question(c)
+                return "break"
         for (c, i), ln in list(self._regen_lines.items()):
             if c == cid and ln == line:
                 if i < 0:
@@ -4381,6 +4450,11 @@ class ChatApp:
             sub = f"{cfg.get('vendor', '')} · {cfg.get('version', '')}".strip(" ·")
             note = "" if self.store.configured(cfg["id"]) else "未配置"
             self.model_card.set_model(model_title(cfg), sub, note)
+        except Exception:
+            pass
+        try:
+            self.history_scope = "current"
+            self.refresh_sidebar(full=True)
         except Exception:
             pass
         try:
@@ -4525,6 +4599,13 @@ class ChatApp:
         self.history_canvas.bind("<Configure>",
                                  lambda e: self.history_canvas.itemconfig("inner", width=e.width))
         bind_wheel_all(self.history_frame, self.history_canvas)
+
+        self.more_bar = tk.Canvas(self.sidebar, height=34, bg=C_BG_SIDEBAR,
+                                  highlightthickness=0, bd=0, cursor="hand2")
+        self.more_bar.bind("<Button-1>", lambda e: self.toggle_history_scope())
+        self.more_bar.bind("<Configure>", lambda e: self._update_more_bar())
+        self._more_visible = False
+        self.history_scope = "current"
 
         right = Frame(self.root, bg=C_BG_MAIN)
         right.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -4851,6 +4932,30 @@ class ChatApp:
     def insert_formula(self, widget, raw):
         """供 MessageRenderer 调用的公式插入入口。"""
         self._insert_formula_at_end(widget, raw)
+
+    def edit_last_question(self, cid):
+        """把最后一条提问放回输入框，并移除未被采纳的回答。"""
+        if self._generating_cid is not None:
+            return
+        conv = self.data["conversations"].get(cid)
+        if not conv:
+            return
+        msgs = conv["messages"]
+        idx = None
+        for i in range(len(msgs) - 1, -1, -1):
+            if msgs[i].get("role") == "user":
+                idx = i
+                break
+        if idx is None:
+            return
+        text = msgs[idx].get("content", "")
+        del msgs[idx:]
+        conv.pop("summary", None)
+        self._save_data()
+        self.data["current_id"] = cid
+        self.load_conversation(cid)
+        self.composer.set_text(text)
+        self.composer.focus_input()
 
     def regenerate_last(self, cid):
         """重新请求最后一条回答；若最后一条是提问（无回答），直接重发。"""
@@ -5490,29 +5595,15 @@ class ChatApp:
                                 if c in self._pending else None)
             except tk.TclError:
                 pass
+        if state is not None:
+            stream = state.get("stream_obj")
+            if stream is not None:
+                try:
+                    stream.close()          # 立即断开 HTTP 流
+                except Exception:
+                    pass
         try:
             self.composer.set_generating(False)
-            self.composer.set_paused(False)
-        except Exception:
-            pass
-
-    def toggle_pause(self):
-        """暂停 / 继续显示（内容继续接收，只是不再往界面吐字）。"""
-        cid = self._generating_cid
-        if cid is None:
-            return
-        state = self._pending.get(cid)
-        if state is None:
-            return
-        state["paused"] = not state.get("paused")
-        if not state["paused"] and state["queue"] and state["timer"] is None:
-            try:
-                state["timer"] = self.root.after(
-                    1, lambda c=cid: self._type_next_for(c))
-            except tk.TclError:
-                state["timer"] = None
-        try:
-            self.composer.set_paused(state["paused"])
         except Exception:
             pass
 
@@ -5740,6 +5831,7 @@ class ChatApp:
             self.chat_area.delete("1.0", tk.END)
             self._think_lines.clear()
             self._regen_lines.clear()
+            self._edit_lines.clear()
 
             if cid in self.data["conversations"]:
                 for msg_idx, m in enumerate(
@@ -5770,9 +5862,14 @@ class ChatApp:
                                 self._ensure_block_start()
                                 line_no = int(self.chat_area.index("end").split(".")[0])
                                 self.chat_area.insert(
-                                    tk.END, "⚠ 生成已中断 · 点击这里重新生成\n\n",
+                                    tk.END, "⚠ 生成已中断 · 点击这里重新生成\n",
                                     "regen_link")
                                 self._regen_lines[(cid, msg_idx)] = line_no
+                                line2 = int(self.chat_area.index("end").split(".")[0])
+                                self.chat_area.insert(
+                                    tk.END, "✏ 编辑这条提问后重新发送\n\n",
+                                    "regen_link")
+                                self._edit_lines[(cid, msg_idx)] = line2
                             except tk.TclError:
                                 pass
 
@@ -6016,11 +6113,15 @@ class ChatApp:
                 temperature=(0.3 if self.composer.is_deep_think_on() else 0.7),
                 max_tokens=3000, stream=True, timeout=API_TIMEOUT_SECONDS)
             level = getattr(self, "reasoning_level", "默认")
-            if level != "默认" and cfg["id"] in REASONING_PARAMS:
-                _style, param = REASONING_PARAMS[cfg["id"]]
-                budget = {"低": 1024, "中": 4096, "高": 16384}.get(level, 4096)
-                base_kwargs["extra_body"] = {param: True,
-                                             "thinking_budget": budget}
+            conf = REASONING_CONFIG.get(cfg["id"])
+            if conf and level != "默认":
+                if conf["style"] == "qwen":
+                    budget = {"低": 1024, "中": 4096, "高": 16384}.get(level, 4096)
+                    base_kwargs["extra_body"] = {"enable_thinking": True,
+                                                 "thinking_budget": budget}
+                else:
+                    base_kwargs["extra_body"] = {
+                        "thinking": {"type": "enabled" if level == "开启" else "disabled"}}
             try:
                 stream = client.chat.completions.create(
                     **base_kwargs, stream_options={"include_usage": True})
@@ -6036,6 +6137,7 @@ class ChatApp:
                     raise
                 else:
                     stream = client.chat.completions.create(**base_kwargs)
+            self._pending.setdefault(cid, {})["stream_obj"] = stream
             usage = None
             for chunk in stream:
                 if cid in self._stop_flags:
@@ -6121,9 +6223,23 @@ class ChatApp:
         except Exception: pass
         self.root.destroy()
 
+    def _conv_model(self, conv):
+        return conv.get("model_id") or self.store.current
+
+    def _others_count(self):
+        cur = self.store.current
+        return sum(1 for c in self.data["conversations"].values()
+                   if self._conv_model(c) != cur)
+
     def refresh_sidebar(self, full=False):
-        items = sorted(self.data["conversations"].items(),
-                       key=lambda kv: kv[1].get("time", ""), reverse=True)
+        cur = self.store.current
+        show_other = (self.history_scope == "others")
+        items = [
+            (cid, conv) for cid, conv in self.data["conversations"].items()
+            if (self._conv_model(conv) != cur) == show_other
+        ]
+        items.sort(key=lambda kv: kv[1].get("time", ""), reverse=True)
+        self._update_more_bar()
         if full:
             for w in self.history_frame.winfo_children():
                 w.destroy()
@@ -6147,16 +6263,51 @@ class ChatApp:
                     del self.sidebar_widgets[cid]
         bind_wheel_all(self.history_frame, self.history_canvas)
 
+    def _update_more_bar(self):
+        """有其他模型的对话时，在列表底部浮出「更多记录」长条。"""
+        try:
+            others = self._others_count()
+            need = others > 0
+            if need and not self._more_visible:
+                self.more_bar.pack(side=tk.BOTTOM, fill=tk.X, padx=14, pady=(0, 10))
+                self._more_visible = True
+            elif not need and self._more_visible:
+                self.more_bar.pack_forget()
+                self._more_visible = False
+            if not need:
+                return
+            self.more_bar.delete("all")
+            self.more_bar.update_idletasks()
+            w = max(60, self.more_bar.winfo_width())
+            on_others = (self.history_scope == "others")
+            bgc = C_PRIMARY_SOFT if not on_others else C_ITEM_ACTIVE
+            draw_round_rect(self.more_bar, 0, 2, w, 32, 15, bgc, bgc, 1)
+            text = ("返回当前模型" if on_others
+                    else f"更多记录 · 其他模型 {others} 条")
+            self.more_bar.create_text(w / 2, 17, text=text,
+                                      fill=C_PRIMARY if not on_others else "#ffffff",
+                                      font=(FONT_UI, 8, "bold"))
+        except Exception:
+            pass
+
+    def toggle_history_scope(self):
+        self.history_scope = ("current" if self.history_scope == "others"
+                              else "others")
+        self.refresh_sidebar(full=True)
+
     def _create_sidebar_item(self, cid, conv):
         is_active = (cid == self.data["current_id"])
         title = conv.get("title", "新对话")
         if len(title) > 16: title = title[:16] + "…"
         time_str = conv.get("time", "")
+        mid = self._conv_model(conv)
+        model_name = MODELS_BY_ID.get(mid, {}).get("name", mid)
         canvas = tk.Canvas(self.history_frame, height=58, bg=C_BG_SIDEBAR,
                            highlightthickness=0, bd=0, cursor="hand2")
         canvas.pack(fill=tk.X, padx=4, pady=3)
         state = {"hover": False, "del_visible": False, "hover_del": False,
-                 "is_active": is_active, "title": title, "time": time_str}
+                 "is_active": is_active, "title": title, "time": time_str,
+                 "model": model_name}
 
         def get_bg():
             if state["hover"] and not state["is_active"]:
@@ -6180,6 +6331,13 @@ class ChatApp:
             canvas.create_text(16, 40, anchor="w", text=state["time"],
                                fill="#dbeafe" if state["is_active"] else C_TEXT_DIM,
                                font=("Microsoft YaHei", 8))
+            label = state.get("model", "")
+            if label:
+                if len(label) > 14:
+                    label = label[:14] + "…"
+                canvas.create_text(w - 30, 40, anchor="e", text=label,
+                                   fill="#c7d2fe" if state["is_active"] else "#64748b",
+                                   font=("Microsoft YaHei", 7))
             if state["del_visible"]:
                 del_color = C_DELETE if state["hover_del"] else C_TEXT_DIM
                 canvas.create_text(w - 20, h // 2, anchor="center", text="✕",
