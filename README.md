@@ -209,7 +209,7 @@ docs/                  截图与发布说明
 
 ## 参与贡献
 
-欢迎 Issue / PR，见 [CONTRIBUTING.md](CONTRIBUTING.md)；发布与发版流程见 [docs/PUBLISH.md](docs/PUBLISH.md)。
+欢迎 Issue / PR，见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 提交前请确认没有把 `config.enc`、`chat_history.json`、`debug.log` 或个人 API Key 提交进去。
 
 ## 许可证与声明

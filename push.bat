@@ -96,7 +96,7 @@ echo [X] Push failed. Common causes:
 echo     - repository not created on github.com yet
 echo     - not logged in (use a Personal Access Token or SSH)
 echo     - network / proxy problem
-echo   See docs\PUBLISH.md section 10.
+echo   See README "????" for details.
 
 :end
 if exist "%TEMP%\pacc_push_err.txt" del "%TEMP%\pacc_push_err.txt" >nul 2>nul
