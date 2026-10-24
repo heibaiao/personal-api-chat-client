@@ -33,7 +33,6 @@ if errorlevel 1 (
 
 echo [2/4] Configuring remote and TLS...
 "%GIT%" config http.sslBackend openssl
-echo [2/4] Configuring remote...
 "%GIT%" remote get-url origin >nul 2>nul
 if errorlevel 1 (
   "%GIT%" remote add origin https://github.com/heibaiao/personal-api-chat-client.git
