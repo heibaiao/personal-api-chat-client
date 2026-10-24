@@ -12,6 +12,7 @@ import math
 import logging
 import urllib.parse
 import urllib.request
+import webbrowser
 from datetime import datetime
 import tkinter as tk
 from tkinter import scrolledtext, messagebox, Frame, Label, Toplevel
@@ -22,8 +23,9 @@ from openai import OpenAI
 APP_NAME = "个人API调用对话系统"
 APP_NAME_EN = "Personal API Chat Client"
 APP_PUBLISHER = "heibaiao"
-APP_VERSION = "αpiv0004"          # 内部版本号（只在「关于」页左下角展示）
-APP_VERSION_PUBLIC = "V1.0"      # 对外版本号
+APP_VERSION = "αpiv0004-1"          # 内部版本号（只在「关于」页左下角展示）
+APP_VERSION_PUBLIC = "V1.0"
+GITHUB_URL = "https://github.com/heibaiao/personal-api-chat-client"      # 对外版本号
 AI_DISPLAY_NAME = "DeepSeek-V4.1-Flash-1017"
 AI_BRAND_MAIN = "DeepSeek"
 AI_BRAND_SUB = "V4.1-Flash-1017"
@@ -1510,7 +1512,7 @@ FEATURE_GROUPS = [
         ("模型选择", "品牌徽标 + 型号，按首字母排序；已导入的置顶"),
         ("深度思考", "按模型能力出现，可先推理再作答"),
         ("智能搜索", "联网检索后把结果注入上下文"),
-        ("消息操作", "复制 / 重新生成，可回溯重答"),
+        ("消息操作", "复制 / 重新生成 / 暂停 / 停止生成"),
         ("使用教程", "右上角 ? 打开简明图文教程"),
         ("用量统计", "输入区上方显示本对话 tokens 与折算费用"),
     ]),
@@ -1531,7 +1533,9 @@ FEATURE_GROUPS = [
         ("实时渲染", "生成中按行渲染 Markdown，未完成行在换行后出现"),
         ("品牌图标", "37 个模型图标，未导入时自动灰度"),
     ]),
-    ("已知问题", [
+]
+
+KNOWN_ISSUES = [
         ("单文件版", "受限环境可能解包失败，请使用目录版"),
         ("复杂公式", "矩阵 / cases / 含中文结构会降级为 Unicode 文本"),
         ("实时渲染", "未完成的最后一行需等换行才显示"),
@@ -1540,14 +1544,13 @@ FEATURE_GROUPS = [
         ("余额查询", "仅 DeepSeek 提供公开余额接口"),
         ("智能搜索", "依赖 DuckDuckGo，可能被限流或取不到结果"),
         ("推理显示", "需服务商返回 reasoning_content 才有内容"),
-        ("关闭启动密码", "Key 等同本机可用，安全性下降"),
+        ("关闭启动密码", "Key 仍加密且不显示明文，但本机可直接调用"),
         ("密码找回", "无找回机制，只能删除 config.enc 重录"),
         ("模型切换", "生成回答期间不能切换模型"),
         ("多开写入", "同一目录多开会互相覆盖对话记录"),
         ("平台支持", "仅在 Windows 10/11 验证，未测 Linux/macOS"),
         ("上下文压缩", "超过 20 轮自动摘要，早期细节可能丢失"),
         ("网络代理", "不支持程序内代理设置，需系统级代理"),
-    ]),
 ]
 
 
@@ -1617,9 +1620,13 @@ class WelcomeView(tk.Frame):
               wraplength=800, justify=tk.LEFT, anchor="w").pack(fill=tk.X, pady=(0, 18))
 
         # ----- 功能列表（分类表格） -----
-        Label(inner, text="✦  已支持功能与已知问题", bg=C_WELCOME_BG, fg=C_WELCOME_BLUE,
+        Label(inner, text="✦  已支持功能", bg=C_WELCOME_BG, fg=C_WELCOME_BLUE,
               font=(FONT_UI, 14, "bold"), anchor="w").pack(fill=tk.X, pady=(4, 6))
         self._feature_table(inner)
+
+        Label(inner, text="⚠  已知问题", bg=C_WELCOME_BG, fg="#f0b27a",
+              font=(FONT_UI, 14, "bold"), anchor="w").pack(fill=tk.X, pady=(14, 6))
+        self._issues_table(inner)
 
         Label(inner, text="", bg=C_WELCOME_BG).pack(pady=8)
 
@@ -1657,8 +1664,9 @@ class WelcomeView(tk.Frame):
         # 让整页（含表格、说明块）都能用鼠标滚轮滚动
         bind_wheel_all(inner, canvas)
 
-    def _feature_table(self, parent):
+    def _feature_table(self, parent, groups=None):
         """分类表格：分类列纵向跨行，功能 / 说明两列逐行展开。"""
+        groups = groups if groups is not None else FEATURE_GROUPS
         border = C_WELCOME_PANEL
         table = Frame(parent, bg=border)
         table.pack(fill=tk.X, pady=(2, 8))
@@ -1681,21 +1689,47 @@ class WelcomeView(tk.Frame):
         cell(0, 2, "说明", C_WELCOME_MUTED, (FONT_UI, 8, "bold"), bg=head_bg)
 
         r = 1
-        for cat, items in FEATURE_GROUPS:
+        for cat, items in groups:
             start = r
-            warn = (cat == "已知问题")
-            name_fg = "#f0b27a" if warn else C_WELCOME_BLUE
-            desc_fg = "#d9c3ac" if warn else C_WELCOME_TEXT
-            cat_bg = "#241a12" if warn else "#0e1626"
-            cat_fg = "#f0b27a" if warn else C_WELCOME_BLUE_SOFT
             for name, desc in items:
-                cell(r, 1, name, name_fg, (FONT_UI, 9, "bold"))
-                cell(r, 2, desc, desc_fg, (FONT_UI, 9), wrap=500)
+                cell(r, 1, name, C_WELCOME_BLUE, (FONT_UI, 9, "bold"))
+                cell(r, 2, desc, C_WELCOME_TEXT, (FONT_UI, 9), wrap=500)
                 r += 1
-            cell(start, 0, cat, cat_fg, (FONT_UI, 9, "bold"),
-                 bg=cat_bg, rowspan=r - start)
+            cell(start, 0, cat, C_WELCOME_BLUE_SOFT, (FONT_UI, 9, "bold"),
+                 bg="#0e1626", rowspan=r - start)
         Frame(table, bg=border, height=1).grid(
             row=r, column=0, columnspan=3, sticky="ew")
+
+    def _issues_table(self, parent):
+        """已知问题：独立的两列表格。"""
+        border = C_WELCOME_PANEL
+        table = Frame(parent, bg=border)
+        table.pack(fill=tk.X, pady=(2, 8))
+        table.columnconfigure(0, minsize=158)
+        table.columnconfigure(1, weight=1)
+        head_bg = "#2a1c12"
+        cell_specs = [(0, 0, "问题", 120), (0, 1, "说明", None)]
+        for r_, c_, text, _w in cell_specs:
+            holder = Frame(table, bg=head_bg)
+            holder.grid(row=r_, column=c_, sticky="nsew", padx=(1, 0), pady=(1, 0))
+            Label(holder, text=text, bg=head_bg, fg="#f0b27a",
+                  font=(FONT_UI, 8, "bold"), anchor="nw").pack(
+                fill=tk.BOTH, expand=True, padx=10, pady=7)
+        r = 1
+        for name, desc in KNOWN_ISSUES:
+            for c_, text, fg, bold in ((0, name, "#f0b27a", True),
+                                       (1, desc, "#d9c3ac", False)):
+                holder = Frame(table, bg=C_WELCOME_BG)
+                holder.grid(row=r, column=c_, sticky="nsew",
+                            padx=(1, 0), pady=(1, 0))
+                Label(holder, text=text, bg=C_WELCOME_BG, fg=fg,
+                      font=(FONT_UI, 9, "bold" if bold else "normal"),
+                      anchor="nw", justify=tk.LEFT,
+                      wraplength=520 if c_ == 1 else 0).pack(
+                    fill=tk.BOTH, expand=True, padx=10, pady=7)
+            r += 1
+        Frame(table, bg=border, height=1).grid(
+            row=r, column=0, columnspan=2, sticky="ew")
 
     def _on_click_enter(self):
         skip = False
@@ -1863,6 +1897,16 @@ class AboutDialog:
                   font=(FONT_UI, 10), width=8, anchor="w").pack(side=tk.LEFT)
             Label(row, text=value, bg=C_BG_MAIN, fg=C_TEXT_DARK,
                   font=(FONT_UI, 10, "bold"), anchor="w").pack(side=tk.LEFT)
+        link_row = Frame(body, bg=C_BG_MAIN)
+        link_row.pack(fill=tk.X, pady=(10, 0))
+        Label(link_row, text="项目主页", bg=C_BG_MAIN, fg=C_TEXT_MUTED,
+              font=(FONT_UI, 10), width=8, anchor="w").pack(side=tk.LEFT)
+        link = Label(link_row, text=GITHUB_URL, bg=C_BG_MAIN, fg="#2563eb",
+                     font=(FONT_UI, 9, "underline"), anchor="w",
+                     cursor="hand2")
+        link.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        link.bind("<Button-1>", lambda e: webbrowser.open(GITHUB_URL))
+
         tk.Frame(body, bg=C_BORDER, height=1).pack(fill=tk.X, pady=(14, 0))
 
         btn_col = Frame(body, bg=C_BG_MAIN)
@@ -2567,7 +2611,7 @@ class ModelRowButton(tk.Canvas):
             self.create_text(58 + name_w + 4, 20, anchor="w", text=mark,
                              fill=sub_fg, font=(FONT_UI, 8))
 
-        sub = f"{self.cfg.get('vendor', '')} · {self.cfg.get('version', '')}"
+        sub = self.cfg.get("vendor", "")
         self.create_text(58, 46, anchor="w", text=sub,
                          fill=sub_fg, font=(FONT_UI, 8))
 
@@ -3027,8 +3071,9 @@ class SettingsDialog:
         else:
             if not messagebox.askyesno(
                     "关闭启动密码",
-                    "关闭后启动不再要求密码。\n"
-                    "本机任何能运行本程序的人都能直接看到已保存的 API Key。\n"
+                    "关闭后启动不再要求密码，但密钥仍然加密保存，"
+                    "任何界面都不会显示 Key 的明文。\n\n"
+                    "区别只是：本机使用者无需密码即可直接调用已保存的 Key。\n"
                     "确定关闭？", parent=self.dlg):
                 self.pwd_var.set(1)
                 return
@@ -3591,6 +3636,45 @@ class MarkdownStream:
         if latex.startswith("$$"):
             latex = latex[2:]
         self.r._render_block_formula(self.w, latex)
+class AttachButton(tk.Canvas):
+    """圆角方形「回形针」附件键。"""
+
+    def __init__(self, parent, command, size=34):
+        super().__init__(parent, width=size, height=size, bg=C_BG_MAIN,
+                         highlightthickness=0, bd=0, cursor="hand2")
+        self.size = size
+        self.command = command
+        self._hover = False
+        self._draw()
+        self.bind("<Enter>", self._on_enter)
+        self.bind("<Leave>", self._on_leave)
+        self.bind("<Button-1>", lambda e: command())
+
+    def _on_enter(self, _e):
+        self._hover = True
+        self._draw()
+
+    def _on_leave(self, _e):
+        self._hover = False
+        self._draw()
+
+    def _draw(self):
+        self.delete("all")
+        s = self.size
+        bg = C_PRIMARY_SOFT if self._hover else C_BG_MAIN
+        fg = C_PRIMARY if self._hover else C_TEXT_MUTED
+        draw_round_rect(self, 1, 1, s - 1, s - 1, 9, bg,
+                        C_PRIMARY if self._hover else C_BORDER, 1)
+        # 文件 + 加号：明确的「添加附件」语义
+        draw_round_rect(self, 8, 8, 20, 26, 3, "", fg, 2)
+        self.create_line(11, 13, 17, 13, fill=fg, width=1)
+        self.create_line(11, 17, 17, 17, fill=fg, width=1)
+        self.create_line(25, 20, 25, 27, fill=fg, width=2,
+                         capstyle=tk.ROUND)
+        self.create_line(21.5, 23.5, 28.5, 23.5, fill=fg, width=2,
+                         capstyle=tk.ROUND)
+
+
 class Composer(tk.Frame):
     """多行输入 + 发送 + 附件 + 深度思考 / 智能搜索开关。"""
 
@@ -3632,8 +3716,7 @@ class Composer(tk.Frame):
         bar = tk.Frame(self, bg=C_BG_MAIN)
         bar.pack(fill=tk.X, padx=20, pady=(8, 14))
 
-        self.attach_btn = self._icon_action(bar, "📎", self.pick_files,
-                                            "添加文件 / 图片")
+        self.attach_btn = AttachButton(bar, self.pick_files)
         self.attach_btn.pack(side=tk.LEFT)
 
         self.think_pill = PillToggle(bar, "深度思考", "think", self._toggle_think)
@@ -3646,10 +3729,42 @@ class Composer(tk.Frame):
                              font=(FONT_UI, 8))
         self.hint.pack(side=tk.LEFT, padx=(12, 0))
 
+        self.gen_box = tk.Frame(bar, bg=C_BG_MAIN)
+        self.pause_btn = None
+        self._make_pause_btn("暂停")
+        self.stop_btn = make_rounded_button(
+            self.gen_box, "停止", self.app.stop_generation, bg=C_BG_INPUT,
+            fg=C_DELETE, hover_bg="#fee2e2", font=(FONT_UI, 9), width=64)
+        self.stop_btn.pack(side=tk.LEFT)
+
         self.send_btn = make_rounded_button(
             bar, "发送", self.app.send_message, bg=C_PRIMARY,
             hover_bg=C_PRIMARY_HOVER, font=(FONT_UI, 10, "bold"))
         self.send_btn.pack(side=tk.RIGHT)
+
+    def _make_pause_btn(self, text):
+        if self.pause_btn is not None:
+            self.pause_btn.destroy()
+        self.pause_btn = make_rounded_button(
+            self.gen_box, text, self.app.toggle_pause, bg=C_BG_INPUT,
+            fg=C_TEXT_DARK, hover_bg=C_BORDER, font=(FONT_UI, 9), width=64)
+        self.pause_btn.pack(side=tk.LEFT, padx=(0, 6))
+
+    def set_generating(self, on):
+        try:
+            if on:
+                self.gen_box.pack(side=tk.RIGHT, padx=(0, 8))
+            else:
+                self.gen_box.pack_forget()
+                self.set_paused(False)
+        except Exception:
+            pass
+
+    def set_paused(self, paused):
+        try:
+            self._make_pause_btn("继续" if paused else "暂停")
+        except Exception:
+            pass
 
     def _icon_action(self, parent, glyph, command, tooltip=""):
         cv = tk.Canvas(parent, width=34, height=34, bg=C_BG_MAIN,
@@ -4016,6 +4131,8 @@ class ChatApp:
         self.password_required = bool(self.settings.get("password_required", True))
         self._expanded_reasoning = set()
         self._think_lines = {}
+        self._regen_lines = {}
+        self._stop_flags = set()
 
         self.renderer = MessageRenderer(self)
         self.build_ui()
@@ -4094,6 +4211,13 @@ class ChatApp:
         except Exception:
             return
         cid = self.data.get("current_id")
+        for (c, i), ln in list(self._regen_lines.items()):
+            if c == cid and ln == line:
+                if i < 0:
+                    self.regenerate_last(c)
+                else:
+                    self.regenerate(c, i)
+                return "break"
         for (c, i), ln in list(self._think_lines.items()):
             if c == cid and ln == line:
                 self.toggle_reasoning(c, i)
@@ -4217,7 +4341,7 @@ class ChatApp:
                 self.data["conversations"][cid] = make_new_conversation_dict(self.store.current)
                 self.data["current_id"] = cid
         for cid, state in list(self._pending.items()):
-            for key in ("timer", "think_timer", "safety_timer"):
+            for key in ("timer", "think_timer", "safety_timer", "reason_timer"):
                 t = state.get(key)
                 if t is not None:
                     try: self.root.after_cancel(t)
@@ -4373,6 +4497,9 @@ class ChatApp:
         ca.tag_config("think_done", foreground=C_THINK_DONE,
                       font=(FONT_UI, max(8, base_size - 2), "italic"),
                       spacing1=0, spacing3=0, lmargin1=6, lmargin2=6)
+        ca.tag_config("regen_link", foreground="#b45309",
+                      font=(FONT_UI, max(8, base_size - 2), "underline"),
+                      lmargin1=6, lmargin2=6, spacing1=2, spacing3=6)
         ca.tag_config("think_head", foreground=C_THINK_DONE,
                       font=(FONT_UI, max(8, base_size - 2)),
                       spacing1=4, spacing3=2, lmargin1=6, lmargin2=6)
@@ -4615,6 +4742,27 @@ class ChatApp:
         """供 MessageRenderer 调用的公式插入入口。"""
         self._insert_formula_at_end(widget, raw)
 
+    def regenerate_last(self, cid):
+        """重新请求最后一条回答；若最后一条是提问（无回答），直接重发。"""
+        if self._generating_cid is not None:
+            return
+        conv = self.data["conversations"].get(cid)
+        if not conv:
+            return
+        msgs = conv["messages"]
+        if not msgs:
+            return
+        if msgs[-1].get("role") == "assistant":
+            self.regenerate(cid, len(msgs) - 1)
+            return
+        if msgs[-1].get("role") != "user":
+            return
+        self._generating_cid = cid
+        self._set_send_enabled(False)
+        self._update_floating_visibility()
+        self._start_thinking_for(cid)
+        threading.Thread(target=self.call_api, args=(cid,), daemon=True).start()
+
     def regenerate(self, cid, idx):
         if self._generating_cid is not None:
             messagebox.showinfo("提示", "正在生成回答，请稍候", parent=self.root)
@@ -4806,6 +4954,11 @@ class ChatApp:
         state["think_start_idx"] = None
         state["think_line_start"] = None
         state["think_line_end"] = None
+        state["think_mode"] = bool(self.composer.is_deep_think_on())
+        state["paused"] = False
+        state["interrupted"] = False
+        state["reason_buf"] = ""
+        state["reason_timer"] = None
 
         if cid == self.data["current_id"]:
             try:
@@ -4917,8 +5070,9 @@ class ChatApp:
                 try:
                     self._ensure_block_start()
                     self.chat_area.insert(tk.END, AI_DISPLAY_NAME + "\n", "name_ai")
-                    head_text = (f"已深度思考（用时 {state['think_elapsed']:.1f} 秒）\n\n")
-                    self.chat_area.insert(tk.END, head_text, "think_done")
+                    if state.get("think_mode"):
+                        head_text = (f"已深度思考（用时 {state['think_elapsed']:.1f} 秒）\n\n")
+                        self.chat_area.insert(tk.END, head_text, "think_done")
                     # 标题以换行结尾，答案从下一行的行首开始（行号法，避免 end-1c 偏移）
                     head_line = int(self.chat_area.index("end-1c").split(".")[0])
                     state["content_start"] = self.chat_area.index("end")
@@ -4964,6 +5118,8 @@ class ChatApp:
                 "saved": False, "content_start": None, "think_start_idx": None,
                 "think_line_start": None, "think_line_end": None,
                 "safety_timer": None, "reasoning": "", "stream": None,
+                "think_mode": False, "paused": False, "interrupted": False,
+                "reason_buf": "", "reason_timer": None, "summary_pending": False,
             }
         return self._pending[cid]
 
@@ -4973,7 +5129,29 @@ class ChatApp:
         if state is None or not text:
             return
         state["reasoning"] = (state.get("reasoning") or "") + text
+        if not state.get("think_mode"):
+            return                            # 没开深度思考就不显示推理内容
         if cid != self.data["current_id"]:
+            return
+        if state.get("phase") != "thinking":
+            return
+        state["reason_buf"] = (state.get("reason_buf") or "") + text
+        if state.get("reason_timer") is None:
+            try:
+                state["reason_timer"] = self.root.after(
+                    90, lambda c=cid: self._flush_reasoning_for(c))
+            except tk.TclError:
+                state["reason_timer"] = None
+
+    def _flush_reasoning_for(self, cid):
+        """把累积的推理文本一次性写入，降低 Text 重排次数。"""
+        state = self._pending.get(cid)
+        if state is None:
+            return
+        state["reason_timer"] = None
+        buf = state.get("reason_buf") or ""
+        state["reason_buf"] = ""
+        if not buf or cid != self.data.get("current_id"):
             return
         if state.get("phase") != "thinking":
             return
@@ -4981,7 +5159,7 @@ class ChatApp:
             was_bottom = self._is_at_bottom()
             self.chat_area.config(state=tk.NORMAL)
             try:
-                self.chat_area.insert(tk.END, text, "reasoning_live")
+                self.chat_area.insert(tk.END, buf, "reasoning_live")
             finally:
                 try: self.chat_area.config(state=tk.DISABLED)
                 except tk.TclError: pass
@@ -5016,10 +5194,14 @@ class ChatApp:
         if state is None: return
         state["timer"] = None
         if state["phase"] != "typing": return
+        if state.get("paused"):
+            return                            # 暂停：不消费队列，也不排下一帧
+        qlen = len(state["queue"])
         if self.type_interval_ms <= 0:
-            n = len(state["queue"])          # 关闭打字机：一次显示完
+            n = qlen                          # 关闭打字机：一次显示完
         else:
-            n = min(TYPE_CHARS_PER_TICK, len(state["queue"]))
+            # 队列越长一次吐越多，避免积压后“跳字”和掉帧
+            n = min(qlen, max(TYPE_CHARS_PER_TICK, min(48, qlen // 10 + 1)))
         if n > 0:
             chars = "".join(state["queue"][:n])
             del state["queue"][:n]
@@ -5077,7 +5259,7 @@ class ChatApp:
                 self._set_send_enabled(True)
                 self._update_floating_visibility()
             return
-        for key in ("timer", "think_timer", "safety_timer"):
+        for key in ("timer", "think_timer", "safety_timer", "reason_timer"):
             t = state.get(key)
             if t is not None:
                 try: self.root.after_cancel(t)
@@ -5104,7 +5286,10 @@ class ChatApp:
             try:
                 self._ensure_block_start()
                 self.chat_area.insert(tk.END, AI_DISPLAY_NAME + "\n", "name_ai")
-                self.chat_area.insert(tk.END, hint + "\n\n", "content")
+                self.chat_area.insert(tk.END, hint + "\n", "content")
+                line_no = int(self.chat_area.index("end").split(".")[0])
+                self.chat_area.insert(tk.END, "⚠ 点击这里重新生成\n\n", "regen_link")
+                self._regen_lines[(cid, -1)] = line_no
             except Exception:
                 pass
             try: self.chat_area.config(state=tk.DISABLED)
@@ -5125,12 +5310,13 @@ class ChatApp:
             self._handle_empty_response(
                 cid, hint="（响应超时，请检查网络或 API 配置后重试）")
         else:
+            state["interrupted"] = True
             self._finish_typing_for(cid)
 
     def _finish_typing_for(self, cid):
         state = self._pending.get(cid)
         if state is None: return
-        for key in ("timer", "think_timer", "safety_timer"):
+        for key in ("timer", "think_timer", "safety_timer", "reason_timer"):
             t = state.get(key)
             if t is not None:
                 try: self.root.after_cancel(t)
@@ -5145,17 +5331,22 @@ class ChatApp:
         if not state["saved"]:
             conv = self.data["conversations"].get(cid)
             if conv is not None and state["full"]:
-                conv["messages"].append({
+                msg = {
                     "role": "assistant",
                     "content": state["full"],
-                    "think_elapsed": round(state.get("think_elapsed", 0.0), 1),
-                    "reasoning": (state.get("reasoning") or ""),
-                })
+                }
+                if state.get("think_mode"):
+                    msg["think_elapsed"] = round(state.get("think_elapsed", 0.0), 1)
+                    msg["reasoning"] = (state.get("reasoning") or "")
+                if state.get("interrupted"):
+                    msg["interrupted"] = True
+                conv["messages"].append(msg)
                 conv["time"] = datetime.now().strftime("%Y-%m-%d %H:%M")
                 self._save_data()
                 state["saved"] = True
 
         state["phase"] = "done"
+        self._stop_flags.discard(cid)
         self._pending.pop(cid, None)
         if self._generating_cid == cid:
             self._generating_cid = None
@@ -5172,9 +5363,53 @@ class ChatApp:
             except Exception:
                 log_exc("生成完成后重建对话失败")
 
+    def stop_generation(self):
+        """中断当前生成，保留已生成的部分。"""
+        cid = self._generating_cid
+        if cid is None:
+            return
+        self._stop_flags.add(cid)
+        state = self._pending.get(cid)
+        if state is not None:
+            state["interrupted"] = True
+            state["queue"] = []
+            state["stream_done"] = True
+            # 不等网络线程收尾，立即把已生成的内容落库
+            try:
+                self.root.after(60, lambda c=cid: self._finish_typing_for(c)
+                                if c in self._pending else None)
+            except tk.TclError:
+                pass
+        try:
+            self.composer.set_generating(False)
+            self.composer.set_paused(False)
+        except Exception:
+            pass
+
+    def toggle_pause(self):
+        """暂停 / 继续显示（内容继续接收，只是不再往界面吐字）。"""
+        cid = self._generating_cid
+        if cid is None:
+            return
+        state = self._pending.get(cid)
+        if state is None:
+            return
+        state["paused"] = not state.get("paused")
+        if not state["paused"] and state["queue"] and state["timer"] is None:
+            try:
+                state["timer"] = self.root.after(
+                    1, lambda c=cid: self._type_next_for(c))
+            except tk.TclError:
+                state["timer"] = None
+        try:
+            self.composer.set_paused(state["paused"])
+        except Exception:
+            pass
+
     def _set_send_enabled(self, enabled):
         try:
             self.composer.set_enabled(enabled)
+            self.composer.set_generating(not enabled)
         except Exception:
             pass
 
@@ -5260,11 +5495,10 @@ class ChatApp:
         recent = dialog[-keep_count:]
         old = dialog[:-keep_count]
         summary = conv.get("summary", "")
-        if not summary and old:
-            summary = self._generate_summary(old)
-            if summary:
-                conv["summary"] = summary
-                self._save_data()
+        if not summary and old and not conv.get("summary_pending"):
+            conv["summary_pending"] = True
+            threading.Thread(target=self._summary_worker,
+                             args=(conv, old), daemon=True).start()
         result = []
         if system_msg:
             result.append({"role": "system",
@@ -5275,6 +5509,21 @@ class ChatApp:
                            "content": f"[历史对话摘要] {summary}"})
         result.extend(self._clean_messages_for_api(recent))
         return result
+
+    def _summary_worker(self, conv, old_messages):
+        """后台生成历史摘要，不阻塞本轮请求。"""
+        try:
+            summary = self._generate_summary(old_messages)
+            if summary:
+                conv["summary"] = summary
+                try:
+                    self._save_data()
+                except Exception:
+                    pass
+        except Exception:
+            log_exc("后台摘要生成失败")
+        finally:
+            conv["summary_pending"] = False
 
     def _generate_summary(self, old_messages):
         client = self.store.client()
@@ -5312,6 +5561,7 @@ class ChatApp:
         try:
             self.chat_area.delete("1.0", tk.END)
             self._think_lines.clear()
+            self._regen_lines.clear()
 
             if cid in self.data["conversations"]:
                 for msg_idx, m in enumerate(
@@ -5337,6 +5587,16 @@ class ChatApp:
                                 log_exc(f"历史渲染失败，原文插入: {e}")
                                 try: self.chat_area.insert(tk.END, content + "\n", "content")
                                 except Exception: pass
+                        if m.get("interrupted"):
+                            try:
+                                self._ensure_block_start()
+                                line_no = int(self.chat_area.index("end").split(".")[0])
+                                self.chat_area.insert(
+                                    tk.END, "⚠ 生成已中断 · 点击这里重新生成\n\n",
+                                    "regen_link")
+                                self._regen_lines[(cid, msg_idx)] = line_no
+                            except tk.TclError:
+                                pass
 
                 if cid in self._pending:
                     state = self._pending[cid]
@@ -5464,6 +5724,10 @@ class ChatApp:
                 return
             self._insert_user_message(content)
             conv["messages"].append({"role": "user", "content": content})
+            if conv.get("title") in (None, "", "新对话"):
+                quick = " ".join((user_input or "").split())
+                if quick:
+                    conv["title"] = quick[:16] + ("…" if len(quick) > 16 else "")
             conv["time"] = datetime.now().strftime("%Y-%m-%d %H:%M")
             conv["model_id"] = self.store.current
             self._refresh_one_item(cid)
@@ -5549,6 +5813,7 @@ class ChatApp:
         cfg = self.store.current_cfg()
         self._ensure_pending(cid)
         first_chunk = [False]
+        think_on = bool(self.composer.is_deep_think_on())
         try:
             messages_for_api = self._build_api_messages(conv)
             base_kwargs = dict(
@@ -5564,12 +5829,16 @@ class ChatApp:
                 stream = client.chat.completions.create(**base_kwargs)
             usage = None
             for chunk in stream:
+                if cid in self._stop_flags:
+                    try: stream.close()
+                    except Exception: pass
+                    break
                 got = getattr(chunk, "usage", None)
                 if got is not None:
                     usage = got
                 if not chunk.choices: continue
                 delta = chunk.choices[0].delta
-                if self.show_reasoning:
+                if self.show_reasoning and think_on:
                     rsn = (getattr(delta, "reasoning_content", None)
                            or getattr(delta, "reasoning", None))
                     if rsn:
@@ -5631,7 +5900,7 @@ class ChatApp:
 
     def on_close(self):
         for cid, state in list(self._pending.items()):
-            for key in ("timer", "think_timer", "safety_timer"):
+            for key in ("timer", "think_timer", "safety_timer", "reason_timer"):
                 t = state.get(key)
                 if t is not None:
                     try: self.root.after_cancel(t)
@@ -5819,7 +6088,7 @@ class ChatApp:
         def do_delete():
             state = self._pending.pop(cid, None)
             if state is not None:
-                for key in ("timer", "think_timer", "safety_timer"):
+                for key in ("timer", "think_timer", "safety_timer", "reason_timer"):
                     t = state.get(key)
                     if t is not None:
                         try: self.root.after_cancel(t)
