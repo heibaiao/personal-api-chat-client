@@ -31,6 +31,8 @@ if errorlevel 1 (
   goto :end
 )
 
+echo [2/4] Configuring remote and TLS...
+"%GIT%" config http.sslBackend openssl
 echo [2/4] Configuring remote...
 "%GIT%" remote get-url origin >nul 2>nul
 if errorlevel 1 (
