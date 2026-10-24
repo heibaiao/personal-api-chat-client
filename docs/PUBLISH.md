@@ -1,7 +1,7 @@
-# 开源发布流程（完整版）
+﻿# 开源发布流程（完整版）
 
 面向本仓库：`heibaiao/personal-api-chat-client`
-目标：把本地 `D:\desktop\ds-chat` 变成一个可长期维护的公开仓库，并能持续发版。
+目标：把本地 `D:\desktop\ds-chat\a` 变成一个可长期维护的公开仓库，并能持续发版。
 
 ---
 
@@ -30,7 +30,7 @@ git config --global init.defaultBranch main
 ### 1.1 确认没有密钥泄漏
 
 ```powershell
-cd D:\desktop\ds-chat
+cd D:\desktop\ds-chat\a
 
 # 源码里不应有真实 Key
 Select-String -Path deepseek_chat.py -Pattern 'sk-[A-Za-z0-9]{16,}'
@@ -85,7 +85,7 @@ Get-ChildItem -Recurse -File |
 ## 3. 初始化本地仓库
 
 ```powershell
-cd D:\desktop\ds-chat
+cd D:\desktop\ds-chat\a
 git init
 git branch -M main
 git add .
@@ -292,7 +292,7 @@ git push origin v1.0.1
 ## 12. 一键速查（首次发布）
 
 ```powershell
-cd D:\desktop\ds-chat
+cd D:\desktop\ds-chat\a
 Select-String -Path deepseek_chat.py -Pattern 'sk-[A-Za-z0-9]{16,}'   # 应无输出
 git init; git branch -M main
 git add .; git status --short                                          # 核对清单

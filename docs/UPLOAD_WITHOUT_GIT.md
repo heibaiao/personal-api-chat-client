@@ -1,4 +1,4 @@
-# 不用命令行的发布方式
+﻿# 不用命令行的发布方式
 
 如果你的电脑连不上 GitHub、或者不想用命令行，用下面任一方式。
 
@@ -8,7 +8,7 @@
 
 1. 下载安装 <https://desktop.github.com/>
 2. 打开后 **File → Add local repository…**
-3. 选择 `D:\desktop\ds-chat`（这个目录已经初始化好 git，会直接识别）
+3. 选择 `D:\desktop\ds-chat\a`（这个目录已经初始化好 git，会直接识别）
 4. 右上角点 **Publish repository**
    - Name：`personal-api-chat-client`
    - 取消勾选 **Keep this code private**
@@ -30,7 +30,7 @@
    - Public
    - **不要**勾 Add a README / .gitignore / license
 2. 进入空仓库页面，点 **uploading an existing file**
-3. 打开资源管理器，进入 `D:\desktop\ds-chat`
+3. 打开资源管理器，进入 `D:\desktop\ds-chat\a`
 4. **先删掉/不要选**这些（它们不该上传）：
    - `dist\`、`build\`、`backup\`、`diagnostics\`、`aaaaa\`
    - `config.enc`、`chat_history.json`、`settings.json`、`debug.log`
@@ -49,7 +49,7 @@
 
 ## 方式三：把项目打包带走，在有网的电脑上推
 
-1. 把 `D:\desktop\ds-chat` 整个目录拷到 U 盘
+1. 把 `D:\desktop\ds-chat\a` 整个目录拷到 U 盘
 2. 在能上网的电脑上打开该目录
 3. 双击 **`push.bat`**（会自动检查网络、配置 remote、推送 main、打标签）
 
