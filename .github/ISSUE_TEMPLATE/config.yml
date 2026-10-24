@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 安全漏洞
+    url: https://github.com/heibaiao/personal-api-chat-client/security/advisories/new
+    about: 请勿公开报告安全问题，使用 GitHub Security Advisory
+  - name: 使用教程
+    url: https://github.com/heibaiao/personal-api-chat-client#readme
+    about: 先看 README 的「常见问题」与「已知问题」

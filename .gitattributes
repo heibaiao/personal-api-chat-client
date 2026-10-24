@@ -1,0 +1,16 @@
+# 统一换行与二进制处理，避免 Windows/Linux 互相污染
+* text=auto eol=lf
+
+*.py    text eol=lf
+*.md    text eol=lf
+*.txt   text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.json  text eol=lf
+*.bat   text eol=crlf
+
+*.png   binary
+*.jpg   binary
+*.ico   binary
+*.zip   binary
+*.exe   binary

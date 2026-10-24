@@ -1,0 +1,38 @@
+name: 功能建议
+description: 希望新增或改进的功能
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: 你想解决什么问题
+      description: 描述使用场景，而不是直接给方案
+      placeholder: 例如：对话多了以后很难找回上周那一轮讨论。
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 你希望的方案（可选）
+      placeholder: 例如：侧栏加一个搜索框，按标题和内容过滤。
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: 影响范围
+      options:
+        - 界面上就能完成（不需要新依赖）
+        - 需要接入新的模型 / 服务
+        - 需要新增第三方依赖（请说明）
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: accept
+    attributes:
+      label: 确认
+      options:
+        - label: 我理解本项目保持单文件结构，不拆分模块
+          required: true

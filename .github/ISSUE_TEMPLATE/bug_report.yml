@@ -1,0 +1,70 @@
+name: Bug 报告
+description: 程序报错、显示异常、行为不符合预期
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈。提交前请先搜索已有 Issue，避免重复。
+        **请勿粘贴真实 API Key、聊天内容或 config.enc 的内容。**
+
+  - type: textarea
+    id: what
+    attributes:
+      label: 问题描述
+      description: 发生了什么？期望是什么？
+      placeholder: 例如：生成到一半时文本重复出现，结束后恢复正常。
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. 打开程序，选择 DeepSeek-V4.1-Flash-1017
+        2. 输入「用 Python 写快排」
+        3. 生成过程中观察聊天区
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: 版本
+      description: 关于页左下角的内部版本号，或 Release 标签
+      placeholder: "αpiv0004 / V1.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: package
+    attributes:
+      label: 运行方式
+      options:
+        - 目录版（portable zip）
+        - 单文件版（PACC-V1.0.exe）
+        - 源码运行（python deepseek_chat.py）
+    validations:
+      required: true
+
+  - type: input
+    id: env
+    attributes:
+      label: 环境
+      description: Windows 版本 / Python 版本（源码运行时）
+      placeholder: "Windows 11 23H2 / Python 3.12"
+
+  - type: textarea
+    id: log
+    attributes:
+      label: debug.log 相关片段（可选）
+      description: 只贴出错前后几行，注意先删除其中的 Key 与个人信息
+      render: text
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: 截图（可选）
+      description: 直接把图片拖进来即可

@@ -1,0 +1,48 @@
+name: build
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Compile check
+        run: python -m py_compile deepseek_chat.py
+
+      - name: Build (onedir)
+        run: |
+          pyinstaller -D -w --name PACC-V1.0 --version-file version_info.txt `
+            --collect-all openai --collect-all httpx --collect-all httpcore --collect-all matplotlib `
+            --hidden-import matplotlib.backends.backend_agg `
+            --hidden-import matplotlib.mathtext `
+            --hidden-import matplotlib.font_manager deepseek_chat.py
+
+      - name: Stage portable folder
+        run: |
+          $dst = "dist/PersonalAPIChatClient-V1.0-portable"
+          New-Item -ItemType Directory -Force -Path $dst | Out-Null
+          Copy-Item -Path "dist/PACC-V1.0/*" -Destination $dst -Recurse -Force
+          Copy-Item -Path "assets" -Destination $dst -Recurse -Force
+          if (Test-Path "使用说明.txt") { Copy-Item "使用说明.txt" $dst }
+          Compress-Archive -Path $dst -DestinationPath "dist/PersonalAPIChatClient-V1.0-portable-win64.zip" -Force
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PersonalAPIChatClient-V1.0-portable-win64
+          path: dist/PersonalAPIChatClient-V1.0-portable-win64.zip
+          retention-days: 30
