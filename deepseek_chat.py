@@ -501,7 +501,7 @@ def model_title(cfg):
     return f"{cfg['name']}{cfg.get('mark', '')}"
 
 
-# 官方计费（每 100 万 tokens 的输入/输出价格，货币单位随模型）
+# 参考计费快照（每 100 万 tokens 的输入/输出价格，货币单位随模型；官方调价后需手动更新）
 MODEL_PRICING = {
     "deepseek-flash": (0.5, 2.0, "¥"),
     "deepseek-chat": (2.0, 8.0, "¥"),

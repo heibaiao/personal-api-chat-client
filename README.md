@@ -42,7 +42,7 @@
 **账户与用量**
 - PBKDF2-HMAC-SHA256（20 万次迭代）+ HMAC 认证流加密本地密钥库
 - 启动密码可在设置中关闭（关闭后启动直接进入）
-- **对话级 token 用量与费用**：按官方单价折算，两位小数 + K/M 单位
+- **对话级 token 用量与费用**：按内置参考单价折算（非官方账单），两位小数 + K/M 单位
 - DeepSeek 余额查询（对话里问「余额」即可）
 
 **其他**
@@ -94,6 +94,9 @@
 | Cerebras / DeepInfra / HuggingFace | Llama-3.3-70B |
 | Ollama / LM Studio | 本地模型（免密钥） |
 
+> **关于模型名**：表中为应用内的**显示名**，实际请求的模型 ID 见 `MODEL_REGISTRY` 的 `api_model`。
+> 显示名可自行修改；部分预置 ID 可能随服务商调整或需要你替换为自己账号可用的模型 ID。
+>
 > 名称与徽标仅用于标识对应服务，商标归各自所有者。见 [assets/logos/NOTICE.md](assets/logos/NOTICE.md)。
 
 ## 快速开始
@@ -212,6 +215,9 @@ docs/                  截图与发布说明
 ## 许可证与声明
 
 - 代码：[MIT License](LICENSE) © 2026 heibaiao
+- **品牌图标不在 MIT 授权范围内**：`assets/logos/` 下的图片是各自所有者的商标，
+  仅作指示性使用（标识对应服务），不构成任何授权；权利人可要求移除，见
+  [assets/logos/NOTICE.md](assets/logos/NOTICE.md)
 - 本项目与 DeepSeek、OpenAI、Alibaba、Google 等公司**无任何隶属关系**，也未获其背书
 - 所有模型名称与商标归各自所有者，仅用于标识兼容的服务
-- 使用第三方 API 产生的费用由使用者自行承担
+- 使用第三方 API 产生的费用由使用者自行承担；程序内的单价为**参考快照**，可能与官方最新价目不同
