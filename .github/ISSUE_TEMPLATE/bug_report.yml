@@ -34,7 +34,7 @@ body:
     attributes:
       label: 版本
       description: 关于页左下角的内部版本号，或 Release 标签
-      placeholder: "αpiv0004 / V1.0"
+      placeholder: "V1.0"
     validations:
       required: true
 

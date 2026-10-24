@@ -55,7 +55,7 @@ if errorlevel 1 (
 :afterpush
 echo.
 echo [4/4] Creating and pushing tag v1.0.0...
-"%GIT%" tag -a v1.0.0 -m "V1.0 (apiv0004)" 2>nul
+"%GIT%" tag -a v1.0.0 -m "V1.0" 2>nul
 "%GIT%" push origin v1.0.0
 if errorlevel 1 echo [!] Tag push skipped or already exists.
 
