@@ -23,7 +23,7 @@ from openai import OpenAI
 APP_NAME = "个人API调用对话系统"
 APP_NAME_EN = "Personal API Chat Client"
 APP_PUBLISHER = "heibaiao"
-APP_VERSION = "αpiv0004-1"          # 内部版本号（只在「关于」页左下角展示）
+APP_VERSION = "αpiv0004-2"          # 内部版本号（只在「关于」页左下角展示）
 APP_VERSION_PUBLIC = "V1.0"
 GITHUB_URL = "https://github.com/heibaiao/personal-api-chat-client"      # 对外版本号
 AI_DISPLAY_NAME = "DeepSeek-V4.1-Flash-1017"
@@ -504,6 +504,28 @@ def model_title(cfg):
 
 
 # 参考计费快照（每 100 万 tokens 的输入/输出价格，货币单位随模型；官方调价后需手动更新）
+# 支持图片输入的模型（多模态）
+VISION_MODELS = {"gpt-4o", "gpt-4o-mini", "gemini-2.0-flash",
+                 "claude-sonnet-4", "grok-4", "doubao-seed-1.6"}
+
+# 上下文窗口（tokens），未列出的按默认值
+CONTEXT_WINDOWS = {
+    "deepseek-flash": 128_000, "deepseek-chat": 128_000,
+    "deepseek-reasoner": 128_000, "qwen-max": 131_072,
+    "qwen-turbo": 131_072, "kimi-k2": 256_000, "glm-4.6": 200_000,
+    "gpt-4o": 128_000, "gpt-4o-mini": 128_000,
+    "gemini-2.0-flash": 1_000_000, "claude-sonnet-4": 200_000,
+    "grok-4": 256_000, "llama-3.3-70b": 128_000,
+}
+DEFAULT_CONTEXT_WINDOW = 128_000
+
+# 支持“推理强度”调节的模型：供应商参数名
+REASONING_PARAMS = {
+    "qwen-max": ("qwen", "enable_thinking"),
+    "qwen-turbo": ("qwen", "enable_thinking"),
+    "siliconflow-qwen3": ("qwen", "enable_thinking"),
+}
+
 MODEL_PRICING = {
     "deepseek-flash": (0.5, 2.0, "¥"),
     "deepseek-chat": (2.0, 8.0, "¥"),
@@ -543,6 +565,20 @@ MODEL_PRICING = {
     "ollama-local": (0.0, 0.0, "¥"),
     "lmstudio-local": (0.0, 0.0, "¥"),
 }
+
+
+def image_data_url(path, max_bytes=4_000_000):
+    """把本地图片转成 data URL；过大或失败返回 None。"""
+    try:
+        if os.path.getsize(path) > max_bytes:
+            return None
+        ext = os.path.splitext(path)[1].lower()
+        mime = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                ".webp": "image/webp", ".gif": "image/gif"}.get(ext, "image/png")
+        with open(path, "rb") as f:
+            return f"data:{mime};base64," + base64.b64encode(f.read()).decode()
+    except Exception:
+        return None
 
 
 def estimate_tokens(text):
@@ -1512,12 +1548,15 @@ FEATURE_GROUPS = [
         ("模型选择", "品牌徽标 + 型号，按首字母排序；已导入的置顶"),
         ("深度思考", "按模型能力出现，可先推理再作答"),
         ("智能搜索", "联网检索后把结果注入上下文"),
+        ("图片输入", "视觉模型可直接读图，失败自动跳过"),
         ("消息操作", "复制 / 重新生成 / 暂停 / 停止生成"),
         ("使用教程", "右上角 ? 打开简明图文教程"),
         ("用量统计", "输入区上方显示本对话 tokens 与折算费用"),
+        ("上下文进度", "接近上限时自动压缩历史并提示"),
     ]),
     ("模型与账户", [
         ("多模型接入", "内置 37 个模型 / 32 个品牌，兼容 OpenAI 接口均可接"),
+        ("推理强度", "支持的模型可调 低 / 中 / 高"),
         ("独立 API Key", "每个模型单独保存密钥，界面只显示脱敏串"),
         ("启动密码", "可在设置里关闭，关闭后启动直接进入"),
         ("余额查询", "在对话里问「余额」即可查询 DeepSeek 账户"),
@@ -1550,6 +1589,9 @@ KNOWN_ISSUES = [
         ("多开写入", "同一目录多开会互相覆盖对话记录"),
         ("平台支持", "仅在 Windows 10/11 验证，未测 Linux/macOS"),
         ("上下文压缩", "超过 20 轮自动摘要，早期细节可能丢失"),
+        ("图片输入", "仅 6 个视觉模型支持，超过 4MB 的图片会被跳过"),
+        ("推理强度", "仅 Qwen 系列可调，其他模型固定为默认"),
+        ("暂停生成", "暂停只暂停显示，token 仍会继续产生"),
         ("网络代理", "不支持程序内代理设置，需系统级代理"),
 ]
 
@@ -1758,31 +1800,26 @@ class WelcomeWindow:
 
 # ============ 使用教程 ============
 HELP_SECTIONS = [
-    ("☰  菜单", [
-        ("设置", "字号、打字速度、发送方式、推理过程、启动密码、数据目录"),
-        ("模型", "导入 / 修改各模型的 API Key"),
-        ("导出", "勾选一个或多个对话，保存为 TXT"),
+    ("① 快速开始", [
+        ("填 Key", "菜单 → 模型 → 选模型 → 粘贴 Key"),
+        ("选模型", "点侧栏顶部卡片切换"),
+        ("开始聊", "Enter 发送 · Shift+Enter 换行"),
     ]),
-    ("◈  模型", [
-        ("切换", "点侧栏「当前模型」卡片 → 选模型；已导入的置顶"),
-        ("导入 Key", "菜单 → 模型 → 点某个模型 → 输入新 Key"),
-        ("查余额", "直接问「余额还剩多少」，目前仅 DeepSeek 支持"),
+    ("② 界面", [
+        ("☰ 左上", "设置 / 模型 / 导出"),
+        ("? 右上", "本教程"),
+        ("i 右上", "关于、版本号、项目主页"),
     ]),
-    ("⌨  输入", [
-        ("发送", "Enter 发送，Shift+Enter 换行（设置里可改）"),
-        ("附件", "📎 添加文件；文本并入消息，图片只记录文件名"),
-        ("深度思考", "◈ 开关，仅支持该能力的模型显示"),
-        ("智能搜索", "🌐 开关，先联网检索再注入上下文"),
+    ("③ 输入与推理", [
+        ("◈ 深度思考", "开启后才显示并保留推理过程"),
+        ("🌐 智能搜索", "先联网检索再回答"),
+        ("📄 附件", "文本并入提问；图片需模型支持"),
+        ("⏸ 暂停 / 停止", "生成中可暂停显示或直接停止"),
     ]),
-    ("💬  对话", [
-        ("操作", "每条回答下方：复制 / 重新生成"),
-        ("管理", "侧栏新建、切换；悬停卡片点 ✕ 删除"),
-        ("推理", "设置开启「推理过程」后，▼ 已深度思考可展开"),
-    ]),
-    ("∑  公式", [
-        ("行内", "用 $E=mc^2$ 这样的单美元包裹"),
-        ("独立", "用 $$ ... $$ 包裹，居中排版"),
-        ("化学式", "用 \\ce{2H2 + O2 -> 2H2O} 包裹"),
+    ("④ 常见问题", [
+        ("公式变文字", "超出渲染能力，自动转 Unicode"),
+        ("上下文变红", "接近上限，会自动压缩历史"),
+        ("查余额", "仅 DeepSeek 支持"),
     ]),
 ]
 
@@ -1841,20 +1878,41 @@ class HelpWindow:
         self.dlg.bind("<Escape>", lambda e: self.dlg.destroy())
 
     def _section(self, parent, title, rows):
-        panel = Frame(parent, bg=C_WELCOME_PANEL)
-        panel.pack(fill=tk.X, pady=(0, 12))
-        Label(panel, text=title, bg=C_WELCOME_PANEL, fg=C_WELCOME_BLUE,
-              font=(FONT_UI, 12, "bold"), anchor="w").pack(
-            fill=tk.X, padx=18, pady=(12, 8))
+        """圆角卡片式小节。"""
+        wrap = Frame(parent, bg=C_WELCOME_BG)
+        wrap.pack(fill=tk.X, pady=(0, 10))
+        cv = tk.Canvas(wrap, bg=C_WELCOME_BG, highlightthickness=0, bd=0,
+                       height=10)
+        cv.pack(fill=tk.X)
+        inner = Frame(cv, bg=C_WELCOME_PANEL)
+        win = cv.create_window(18, 12, window=inner, anchor="nw")
+        Label(inner, text=title, bg=C_WELCOME_PANEL, fg=C_WELCOME_BLUE,
+              font=(FONT_UI, 11, "bold"), anchor="w").pack(
+            fill=tk.X, pady=(0, 6))
         for name, desc in rows:
-            row = Frame(panel, bg=C_WELCOME_PANEL)
-            row.pack(fill=tk.X, padx=18, pady=(0, 8))
+            row = Frame(inner, bg=C_WELCOME_PANEL)
+            row.pack(fill=tk.X, pady=2)
             Label(row, text=name, bg=C_WELCOME_PANEL, fg="#ffffff",
-                  font=(FONT_UI, 9, "bold"), width=14, anchor="nw",
+                  font=(FONT_UI, 9, "bold"), width=12, anchor="nw",
                   justify=tk.LEFT).pack(side=tk.LEFT, anchor="n")
             Label(row, text=desc, bg=C_WELCOME_PANEL, fg=C_WELCOME_TEXT,
                   font=(FONT_UI, 9), anchor="w", justify=tk.LEFT,
                   wraplength=620).pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        def redraw(_e=None):
+            inner.update_idletasks()
+            w = max(2, cv.winfo_width())
+            h = inner.winfo_reqheight() + 24
+            cv.configure(height=h)
+            cv.coords(win, 18, 12)
+            cv.itemconfigure(win, width=max(120, w - 36))
+            cv.delete("card")
+            item = draw_round_rect(cv, 1, 1, w - 2, h - 2, 14,
+                                   C_WELCOME_PANEL, "#1f2b3d", 1)
+            cv.addtag_withtag("card", item)
+            cv.tag_lower("card")
+        cv.bind("<Configure>", redraw)
+        cv.after(30, redraw)
 
 
 class AboutDialog:
@@ -3006,6 +3064,14 @@ class SettingsDialog:
         self._segment(body, "推理过程", self.reason_var,
                       [("关闭", 0), ("显示", 1)], self._on_reasoning)
 
+        cfg_now = self.app.store.current_cfg()
+        self.reason_level_var = tk.StringVar(
+            value=getattr(self.app, "reasoning_level", "默认"))
+        self._segment(body, "推理强度", self.reason_level_var,
+                      [("默认", "默认"), ("低", "低"), ("中", "中"), ("高", "高")],
+                      self._on_reason_level,
+                      note="" if cfg_now["id"] in REASONING_PARAMS else "当前模型不支持")
+
         self.pwd_var = tk.IntVar(value=1 if self.app.password_required else 0)
         self._segment(body, "启动密码", self.pwd_var,
                       [("需要", 1), ("不需要", 0)], self._on_password)
@@ -3020,19 +3086,51 @@ class SettingsDialog:
                             font=(FONT_UI, 10, "bold"), width=110).pack(
             side=tk.BOTTOM, pady=16)
 
-    def _segment(self, parent, label, var, options, command):
+    def _segment(self, parent, label, var, options, command, note=""):
+        """圆角胶囊分段控件（替代原生 Radiobutton）。"""
         row = tk.Frame(parent, bg=C_BG_MAIN)
         row.pack(fill=tk.X, pady=(0, 12))
         Label(row, text=label, bg=C_BG_MAIN, fg=C_TEXT_MUTED,
               font=(FONT_UI, 9), width=9, anchor="w").pack(side=tk.LEFT)
-        for text, value in options:
-            tk.Radiobutton(
-                row, text=text, value=value, variable=var, command=command,
-                indicatoron=0, bd=0, relief=tk.FLAT, offrelief=tk.FLAT,
-                bg=C_BG_INPUT, fg=C_TEXT_DARK, selectcolor="#bfdbfe",
-                activebackground=C_PRIMARY_SOFT, activeforeground=C_TEXT_DARK,
-                highlightthickness=0, font=(FONT_UI, 9), padx=10, pady=3,
-                cursor="hand2").pack(side=tk.LEFT, padx=(0, 6))
+
+        f = tkfont.Font(family=FONT_UI, size=9)
+        spans = []
+        x = 0
+        for text, _v in options:
+            w = f.measure(text) + 26
+            spans.append((x, x + w, text, _v))
+            x += w + 6
+        total = max(60, x - 6)
+
+        cv = tk.Canvas(row, width=total, height=30, bg=C_BG_MAIN,
+                       highlightthickness=0, bd=0)
+        cv.pack(side=tk.LEFT)
+
+        def draw():
+            cv.delete("all")
+            for i, (x1, x2, text, value) in enumerate(spans):
+                on = (var.get() == value)
+                draw_round_rect(cv, x1, 3, x2, 27, 12,
+                                C_PRIMARY if on else C_BG_INPUT,
+                                C_PRIMARY if on else C_BORDER, 1)
+                cv.create_text((x1 + x2) / 2, 15, text=text,
+                               fill="#ffffff" if on else C_TEXT_DARK,
+                               font=(FONT_UI, 9))
+
+        def on_click(e):
+            for _x1, _x2, _text, value in spans:
+                if _x1 <= e.x <= _x2:
+                    var.set(value)
+                    draw()
+                    command()
+                    return
+
+        cv.bind("<Button-1>", on_click)
+        cv.bind("<Configure>", lambda e: draw())
+        draw()
+        if note:
+            Label(row, text=note, bg=C_BG_MAIN, fg="#b45309",
+                  font=(FONT_UI, 8)).pack(side=tk.LEFT, padx=(8, 0))
 
     # ---------- 设置项回调 ----------
     def _on_font(self):
@@ -3047,6 +3145,11 @@ class SettingsDialog:
         self.app.send_with_ctrl = ctrl
         self.app.composer.set_send_mode(ctrl)
         self.app.save_setting("send_with_ctrl", ctrl)
+
+    def _on_reason_level(self):
+        level = self.reason_level_var.get()
+        self.app.reasoning_level = level
+        self.app.save_setting("reasoning_level", level)
 
     def _on_password(self):
         want = bool(self.pwd_var.get())
@@ -4129,6 +4232,7 @@ class ChatApp:
         self.send_with_ctrl = bool(self.settings.get("send_with_ctrl", False))
         self.show_reasoning = bool(self.settings.get("show_reasoning", False))
         self.password_required = bool(self.settings.get("password_required", True))
+        self.reasoning_level = self.settings.get("reasoning_level", "默认")
         self._expanded_reasoning = set()
         self._think_lines = {}
         self._regen_lines = {}
@@ -4281,6 +4385,7 @@ class ChatApp:
             pass
         try:
             self.update_usage_bar()
+            self.update_context_chip()
         except Exception:
             pass
         try:
@@ -4434,9 +4539,14 @@ class ChatApp:
         self.composer.pack(side=tk.BOTTOM, fill=tk.X, pady=(0, 6))
 
         # 用量栏（贴在输入区上方）
-        self.usage_bar = Label(right, text="", bg=C_BG_MAIN, fg=C_TEXT_MUTED,
+        meta_row = Frame(right, bg=C_BG_MAIN)
+        meta_row.pack(side=tk.BOTTOM, fill=tk.X, padx=30, pady=(0, 2))
+        self.ctx_chip = Label(meta_row, text="", bg=C_BG_INPUT, fg=C_TEXT_MUTED,
+                              font=(FONT_UI, 8), padx=8, pady=1)
+        self.ctx_chip.pack(side=tk.LEFT)
+        self.usage_bar = Label(meta_row, text="", bg=C_BG_MAIN, fg=C_TEXT_MUTED,
                                font=(FONT_UI, 8), anchor="e")
-        self.usage_bar.pack(side=tk.BOTTOM, fill=tk.X, padx=30, pady=(0, 2))
+        self.usage_bar.pack(side=tk.RIGHT, fill=tk.X, expand=True)
 
         # ③ 主对话区
         base_size = self.chat_font_size
@@ -5423,6 +5533,42 @@ class ChatApp:
             cleaned.append({"role": role, "content": content})
         return cleaned
 
+    def _conv_context_tokens(self, conv):
+        """粗略估算当前对话发出去会占用多少 tokens。"""
+        try:
+            total = 0
+            for m in conv.get("messages") or []:
+                c = m.get("content")
+                if isinstance(c, str):
+                    total += estimate_tokens(c) + 4
+            return total
+        except Exception:
+            return 0
+
+    def update_context_chip(self, compressed=False):
+        try:
+            conv = self.data["conversations"].get(self.data.get("current_id"))
+            if conv is None or not hasattr(self, "ctx_chip"):
+                return
+            cfg = self.store.current_cfg()
+            window = CONTEXT_WINDOWS.get(cfg["id"], DEFAULT_CONTEXT_WINDOW)
+            used = self._conv_context_tokens(conv)
+            ratio = min(0.999, used / window) if window else 0
+            pct = int(round(ratio * 100))
+            if compressed:
+                text, fg, bg = f"已自动压缩 · 上下文 {pct}%", "#92400e", "#fef3c7"
+            elif ratio >= 0.75:
+                text, fg, bg = f"上下文 {pct}%（即将压缩）", "#b91c1c", "#fee2e2"
+            elif ratio >= 0.5:
+                text, fg, bg = f"上下文 {pct}%", "#92400e", "#fef3c7"
+            else:
+                text, fg, bg = f"上下文 {pct}%", C_TEXT_MUTED, C_BG_INPUT
+            self.ctx_chip.configure(text=text, fg=fg, bg=bg)
+            if compressed:
+                self.root.after(6000, lambda: self.update_context_chip(False))
+        except Exception:
+            pass
+
     def update_usage_bar(self):
         """显示当前对话累计 tokens 与折算费用。"""
         try:
@@ -5455,6 +5601,7 @@ class ChatApp:
             pass
         if cid == self.data.get("current_id"):
             self.update_usage_bar()
+            self.update_context_chip()
 
     def _last_user_text(self, conv):
         for m in reversed(conv.get("messages") or []):
@@ -5487,13 +5634,18 @@ class ChatApp:
             else:
                 extra.append({"role": "system",
                               "content": "[本轮已开启智能搜索，但未获取到结果；如需实时信息请说明]"})
-        if turns <= MAX_HISTORY_TURNS:
-            return self._clean_messages_for_api(
+        est = self._conv_context_tokens(conv)
+        window = CONTEXT_WINDOWS.get(self.store.current_cfg()["id"],
+                                     DEFAULT_CONTEXT_WINDOW)
+        if turns <= MAX_HISTORY_TURNS and est < window * 0.75:
+            result = self._clean_messages_for_api(
                 ([system_msg] if system_msg else []) + extra
                 + [m for m in messages if m is not system_msg])
+            return self._attach_images(conv, result)
         keep_count = MAX_HISTORY_TURNS * 2
         recent = dialog[-keep_count:]
         old = dialog[:-keep_count]
+        self._note_compressed(conv)
         summary = conv.get("summary", "")
         if not summary and old and not conv.get("summary_pending"):
             conv["summary_pending"] = True
@@ -5508,7 +5660,33 @@ class ChatApp:
             result.append({"role": "system",
                            "content": f"[历史对话摘要] {summary}"})
         result.extend(self._clean_messages_for_api(recent))
-        return result
+        return self._attach_images(conv, result)
+
+    def _note_compressed(self, conv):
+        """压缩发生时给界面一个提示徽标。"""
+        try:
+            self.root.after(0, lambda: self.update_context_chip(True))
+        except Exception:
+            pass
+
+    def _attach_images(self, conv, messages):
+        """把待发送的图片转成多模态 content parts，只作用于最后一条用户消息。"""
+        paths = conv.get("pending_images") or []
+        if not paths or not messages:
+            return messages
+        parts = []
+        for p in paths:
+            url = image_data_url(p)
+            if url:
+                parts.append({"type": "image_url", "image_url": {"url": url}})
+        if not parts:
+            return messages
+        for m in reversed(messages):
+            if m.get("role") == "user":
+                text = m.get("content") or ""
+                m["content"] = [{"type": "text", "text": text}] + parts
+                break
+        return messages
 
     def _summary_worker(self, conv, old_messages):
         """后台生成历史摘要，不阻塞本轮请求。"""
@@ -5714,16 +5892,32 @@ class ChatApp:
                 self.composer._render_chips()
                 return
             self.composer.clear_text()
+            cfg_now = self.store.current_cfg()
+            vision = cfg_now["id"] in VISION_MODELS
+            images = [a for a in attachments
+                      if os.path.splitext(a["name"])[1].lower()
+                      in (".png", ".jpg", ".jpeg", ".webp", ".gif")]
+            text_atts = [a for a in attachments if a not in images]
             content = user_input
-            for att in attachments:
+            for att in text_atts:
                 content = (content + "\n\n" if content else "") + \
                           self.composer.attachment_block(att)
+            if images:
+                if vision:
+                    names = "、".join(a["name"] for a in images)
+                    content = (content + "\n\n" if content else "") + \
+                              f"[图片附件 {len(images)} 张：{names}]"
+                else:
+                    content = (content + "\n\n" if content else "") + \
+                              "（本模型不支持图片输入，已忽略图片附件）"
             conv = self.current_conv()
             cid = self.data["current_id"]
             if cid in self._pending:
                 return
             self._insert_user_message(content)
             conv["messages"].append({"role": "user", "content": content})
+            if images and vision:
+                conv["pending_images"] = [a["path"] for a in images]
             if conv.get("title") in (None, "", "新对话"):
                 quick = " ".join((user_input or "").split())
                 if quick:
@@ -5816,17 +6010,32 @@ class ChatApp:
         think_on = bool(self.composer.is_deep_think_on())
         try:
             messages_for_api = self._build_api_messages(conv)
+            conv.pop("pending_images", None)
             base_kwargs = dict(
                 model=cfg["api_model"], messages=messages_for_api,
                 temperature=(0.3 if self.composer.is_deep_think_on() else 0.7),
                 max_tokens=3000, stream=True, timeout=API_TIMEOUT_SECONDS)
+            level = getattr(self, "reasoning_level", "默认")
+            if level != "默认" and cfg["id"] in REASONING_PARAMS:
+                _style, param = REASONING_PARAMS[cfg["id"]]
+                budget = {"低": 1024, "中": 4096, "高": 16384}.get(level, 4096)
+                base_kwargs["extra_body"] = {param: True,
+                                             "thinking_budget": budget}
             try:
                 stream = client.chat.completions.create(
                     **base_kwargs, stream_options={"include_usage": True})
             except Exception as exc:
-                if "stream_options" not in str(exc).lower():
+                msg_low = str(exc).lower()
+                if "extra_body" in base_kwargs and (
+                        "enable_thinking" in msg_low or "thinking_budget" in msg_low
+                        or "unknown" in msg_low or "invalid" in msg_low):
+                    base_kwargs.pop("extra_body", None)      # 退回默认推理
+                    stream = client.chat.completions.create(
+                        **base_kwargs, stream_options={"include_usage": True})
+                elif "stream_options" not in msg_low:
                     raise
-                stream = client.chat.completions.create(**base_kwargs)
+                else:
+                    stream = client.chat.completions.create(**base_kwargs)
             usage = None
             for chunk in stream:
                 if cid in self._stop_flags:
