@@ -23,7 +23,7 @@ from openai import OpenAI
 APP_NAME = "个人API调用对话系统"
 APP_NAME_EN = "Personal API Chat Client"
 APP_PUBLISHER = "heibaiao"
-APP_VERSION = "αpiv0004-3"          # 内部版本号（只在「关于」页左下角展示）
+APP_VERSION = "αpiv0004-4"          # 内部版本号（只在「关于」页左下角展示）
 APP_VERSION_PUBLIC = "V1.0"
 GITHUB_URL = "https://github.com/heibaiao/personal-api-chat-client"      # 对外版本号
 AI_DISPLAY_NAME = "DeepSeek-V4.1-Flash-1017"
@@ -1557,14 +1557,14 @@ FEATURE_GROUPS = [
     ("界面与交互", [
         ("汉堡菜单", "设置 / 模型 / 导出 三个入口"),
         ("模型选择", "品牌徽标 + 型号，按首字母排序；已导入的置顶"),
-        ("分模型历史", "侧栏只显示当前模型的对话，可切换查看其他模型"),
+        ("分模型历史", "侧栏只显示当前模型的对话；查看其他模型时为只读"),
         ("深度思考", "按模型能力出现，可先推理再作答"),
         ("智能搜索", "联网检索后把结果注入上下文"),
         ("图片输入", "视觉模型可直接读图，失败自动跳过"),
         ("消息操作", "复制 / 重新生成 / 暂停 / 停止生成"),
         ("使用教程", "右上角 ? 打开简明图文教程"),
         ("用量统计", "输入区上方显示本对话 tokens 与折算费用"),
-        ("上下文进度", "接近上限时自动压缩历史并提示"),
+        ("上下文进度", "只统计本对话，接近上限自动压缩并提示"),
     ]),
     ("模型与账户", [
         ("多模型接入", "内置 37 个模型 / 32 个品牌，兼容 OpenAI 接口均可接"),
@@ -4005,8 +4005,33 @@ class Composer(tk.Frame):
             pass
 
     def set_enabled(self, enabled):
+        if getattr(self, "read_only", False):
+            return
         self._enabled = enabled
         self.send_btn.set_enabled(enabled, "发送" if enabled else "生成中")
+
+    def set_readonly(self, on, model_name=""):
+        """查看其他模型的对话时，输入区变为只读。"""
+        self.read_only = bool(on)
+        try:
+            if on:
+                self.text.configure(state=tk.NORMAL)
+                self.text.delete("1.0", tk.END)
+                self.text.insert(
+                    "1.0", f"只读查看：{model_name} 的对话（切换到该模型后可继续）")
+                self.text.configure(state=tk.DISABLED, fg=C_TEXT_MUTED)
+                self._placeholder_on = True
+                self.send_btn.set_enabled(False, "只读")
+                self.gen_box.pack_forget()
+            else:
+                self.text.configure(state=tk.NORMAL)
+                self.text.configure(fg=C_TEXT_MUTED)
+                self._placeholder_on = True
+                self._show_placeholder()
+                self._enabled = True
+                self.send_btn.set_enabled(True, "发送")
+        except Exception as exc:
+            log_exc(f"set_readonly 失败: {exc}")
 
     def focus_input(self):
         self.text.focus_set()
@@ -4284,6 +4309,17 @@ class ChatApp:
 
         # 设置项（落盘 settings.json）
         self.settings = load_settings()
+        # 兼容旧数据：缺失 model_id 的对话统一归到默认模型，避免跟着当前模型漂移
+        try:
+            changed = False
+            for _c in self.data.get("conversations", {}).values():
+                if not _c.get("model_id"):
+                    _c["model_id"] = DEFAULT_MODEL_ID
+                    changed = True
+            if changed:
+                self._save_data()
+        except Exception:
+            pass
         try:
             self.chat_font_size = max(9, min(18, int(self.settings.get("font_size", 11))))
         except Exception:
@@ -4457,6 +4493,10 @@ class ChatApp:
             self.refresh_sidebar(full=True)
         except Exception:
             pass
+        try:
+            self._sync_conversation_to_model()
+        except Exception:
+            log_exc("切换模型后同步对话失败")
         try:
             self.update_usage_bar()
             self.update_context_chip()
@@ -4935,6 +4975,8 @@ class ChatApp:
 
     def edit_last_question(self, cid):
         """把最后一条提问放回输入框，并移除未被采纳的回答。"""
+        if getattr(self, "read_only", False):
+            return
         if self._generating_cid is not None:
             return
         conv = self.data["conversations"].get(cid)
@@ -4979,6 +5021,8 @@ class ChatApp:
         threading.Thread(target=self.call_api, args=(cid,), daemon=True).start()
 
     def regenerate(self, cid, idx):
+        if getattr(self, "read_only", False):
+            return
         if self._generating_cid is not None:
             messagebox.showinfo("提示", "正在生成回答，请稍候", parent=self.root)
             return
@@ -5647,13 +5691,13 @@ class ChatApp:
             ratio = min(0.999, used / window) if window else 0
             pct = int(round(ratio * 100))
             if compressed:
-                text, fg, bg = f"已自动压缩 · 上下文 {pct}%", "#92400e", "#fef3c7"
+                text, fg, bg = f"已自动压缩 · 本对话 {pct}%", "#92400e", "#fef3c7"
             elif ratio >= 0.75:
-                text, fg, bg = f"上下文 {pct}%（即将压缩）", "#b91c1c", "#fee2e2"
+                text, fg, bg = f"本对话 {pct}%（即将压缩）", "#b91c1c", "#fee2e2"
             elif ratio >= 0.5:
-                text, fg, bg = f"上下文 {pct}%", "#92400e", "#fef3c7"
+                text, fg, bg = f"本对话 {pct}%", "#92400e", "#fef3c7"
             else:
-                text, fg, bg = f"上下文 {pct}%", C_TEXT_MUTED, C_BG_INPUT
+                text, fg, bg = f"本对话 {pct}%", C_TEXT_MUTED, C_BG_INPUT
             self.ctx_chip.configure(text=text, fg=fg, bg=bg)
             if compressed:
                 self.root.after(6000, lambda: self.update_context_chip(False))
@@ -5949,6 +5993,8 @@ class ChatApp:
         self._update_floating_visibility()
         try:
             self.update_usage_bar()
+            self.update_context_chip()
+            self._apply_read_only()
         except Exception:
             pass
         self.root.after(250, self._release_suppress_scroll_save)
@@ -5969,6 +6015,11 @@ class ChatApp:
             pass
 
     def send_message(self):
+        if getattr(self, "read_only", False):
+            messagebox.showinfo("只读查看",
+                                "这是其他模型的对话，切换到该模型后才能继续。",
+                                parent=self.root)
+            return
         if self._generating_cid is not None:
             return
         try:
@@ -6224,7 +6275,47 @@ class ChatApp:
         self.root.destroy()
 
     def _conv_model(self, conv):
-        return conv.get("model_id") or self.store.current
+        return conv.get("model_id") or DEFAULT_MODEL_ID
+
+    def _is_read_only(self, cid=None):
+        """查看其他模型的对话时只读。"""
+        cid = cid or self.data.get("current_id")
+        conv = self.data["conversations"].get(cid)
+        if not conv:
+            return False
+        return self._conv_model(conv) != self.store.current
+
+    def _sync_conversation_to_model(self):
+        """切换模型后，把当前对话切到该模型自己的会话上。"""
+        cid = self.data.get("current_id")
+        conv = self.data["conversations"].get(cid)
+        if conv is not None and self._conv_model(conv) == self.store.current:
+            self._apply_read_only()
+            return
+        candidates = [(k, v) for k, v in self.data["conversations"].items()
+                      if self._conv_model(v) == self.store.current]
+        if candidates:
+            candidates.sort(key=lambda kv: kv[1].get("time", ""), reverse=True)
+            target = candidates[0][0]
+            self.data["current_id"] = target
+            self._rebuild_sidebar_active_state()
+            self.load_conversation(target)
+        else:
+            self.new_conversation()
+
+    def _apply_read_only(self):
+        cid = self.data.get("current_id")
+        ro = self._is_read_only(cid)
+        self.read_only = ro
+        try:
+            if ro:
+                conv = self.data["conversations"].get(cid) or {}
+                name = MODELS_BY_ID.get(self._conv_model(conv), {}).get("name", "")
+                self.composer.set_readonly(True, name)
+            else:
+                self.composer.set_readonly(False)
+        except Exception:
+            pass
 
     def _others_count(self):
         cur = self.store.current
