@@ -42,9 +42,16 @@ if errorlevel 1 (
 
 echo.
 echo [3/4] Pushing main...
-"%GIT%" push -u origin main
-if errorlevel 1 goto :pusherr
+"%GIT%" push -u origin main 2>"%TEMP%\pacc_push_err.txt"
+if errorlevel 1 (
+  findstr /C:"rejected" /C:"fetch first" /C:"non-fast-forward" "%TEMP%\pacc_push_err.txt" >nul 2>nul
+  if not errorlevel 1 goto :diverged
+  echo.
+  type "%TEMP%\pacc_push_err.txt"
+  goto :pusherr
+)
 
+:afterpush
 echo.
 echo [4/4] Creating and pushing tag v1.0.0...
 "%GIT%" tag -a v1.0.0 -m "V1.0 (apiv0004)" 2>nul
@@ -60,6 +67,28 @@ echo   3. Upload PersonalAPIChatClient-V1.0-portable-win64.zip
 echo ============================================
 goto :end
 
+:diverged
+echo.
+echo [!] Remote already has commits that your local repo does not have
+echo     (usually a README/LICENSE created on the GitHub website,
+echo      or a previous partial push).
+echo.
+echo     Remote content:  %GIT% fetch origin ^&^& %GIT% log origin/main --oneline -5
+echo.
+set /p YN=  Overwrite remote with this local repo (force push)? [Y/N]:
+if /i "!YN!"=="Y" (
+  echo.
+  echo     Force pushing...
+  "%GIT%" push -u origin main --force
+  if errorlevel 1 goto :pusherr
+  goto :afterpush
+)
+echo.
+echo     Aborted. Options:
+echo       A. Keep remote files:  git pull --rebase origin main   then run push.bat again
+echo       B. Keep local files:   git push -u origin main --force
+goto :end
+
 :pusherr
 echo.
 echo [X] Push failed. Common causes:
@@ -69,6 +98,7 @@ echo     - network / proxy problem
 echo   See docs\PUBLISH.md section 10.
 
 :end
+if exist "%TEMP%\pacc_push_err.txt" del "%TEMP%\pacc_push_err.txt" >nul 2>nul
 echo.
 pause
 endlocal
