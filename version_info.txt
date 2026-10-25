@@ -1,7 +1,7 @@
 ﻿VSVersionInfo(
   ffi=FixedFileInfo(
-    filevers=(1, 0, 0, 0),
-    prodvers=(1, 0, 0, 0),
+    filevers=(1, 0, 1, 0),
+    prodvers=(1, 0, 1, 0),
     mask=0x3f,
     flags=0x0,
     OS=0x40004,
@@ -14,12 +14,12 @@
       StringTable('080404B0', [
         StringStruct('CompanyName', 'heibaiao'),
         StringStruct('FileDescription', 'Personal API Chat Client'),
-        StringStruct('FileVersion', '1.0.0.0'),
-        StringStruct('InternalName', 'PACC-V1.0'),
+        StringStruct('FileVersion', '1.0.1.0'),
+        StringStruct('InternalName', 'PACC-V1.0.1'),
         StringStruct('LegalCopyright', 'Copyright (C) 2026 heibaiao'),
-        StringStruct('OriginalFilename', 'PACC-V1.0.exe'),
+        StringStruct('OriginalFilename', 'PACC-V1.0.1.exe'),
         StringStruct('ProductName', '个人API调用对话系统'),
-        StringStruct('ProductVersion', '1.0.0.0')
+        StringStruct('ProductVersion', '1.0.1.0')
       ])
     ]),
     VarFileInfo([VarStruct('Translation', [2052, 1200])])

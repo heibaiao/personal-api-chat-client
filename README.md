@@ -104,8 +104,8 @@
 
 ### 方式一：下载发布版（推荐）
 
-1. 到 [Releases](https://github.com/heibaiao/personal-api-chat-client/releases) 下载 `PersonalAPIChatClient-V1.0-portable-win64.zip`
-2. 解压后双击 `PACC-V1.0.exe`（**不要**把 exe 单独拷走，它依赖同目录 `_internal`）
+1. 到 [Releases](https://github.com/heibaiao/personal-api-chat-client/releases) 下载 `PersonalAPIChatClient-V1.0.1-portable-win64.zip`
+2. 解压后双击 `PACC-V1.0.1.exe`（**不要**把 exe 单独拷走，它依赖同目录 `_internal`）
 3. 首次启动：选择模型 → 填入该服务的 API Key → 设置本地密码
 
 ### 方式二：从源码运行
@@ -149,14 +149,14 @@ Windows 上（需先 `pip install pyinstaller`）：
 
 ```bat
 :: 目录版（推荐，稳定）
-pyinstaller -D -w --name PACC-V1.0 --version-file version_info.txt ^
+pyinstaller -D -w --name PACC-V1.0.1 --version-file version_info.txt ^
   --collect-all openai --collect-all httpx --collect-all httpcore --collect-all matplotlib ^
   --hidden-import matplotlib.backends.backend_agg ^
   --hidden-import matplotlib.mathtext ^
   --hidden-import matplotlib.font_manager deepseek_chat.py
 ```
 
-产物在 `dist\PACC-V1.0\`，把 `assets\`（模型图标）复制进去即可。
+产物在 `dist\PACC-V1.0.1\`，把 `assets\`（模型图标）复制进去即可。
 
 `version_info.txt` 是 Windows 版本资源（发布者、产品名、版本号），可自行修改。
 单文件版把 `-D` 换成 `-F`；注意单文件模式需要可写的临时目录，某些受限环境会解包失败，故默认推荐目录版。
