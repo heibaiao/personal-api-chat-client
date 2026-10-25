@@ -4977,7 +4977,18 @@ class ChatApp:
         if getattr(self, "read_only", False):
             return
         if self._generating_cid is not None:
-            return
+            # 正在生成时先停下，再进入编辑
+            try:
+                self.stop_generation()
+            except Exception:
+                pass
+            self._pending.pop(cid, None)
+            self._stop_flags.discard(cid)
+            self._generating_cid = None
+            try:
+                self._set_send_enabled(True)
+            except Exception:
+                pass
         conv = self.data["conversations"].get(cid)
         if not conv:
             return
@@ -5553,8 +5564,12 @@ class ChatApp:
                                       "name_ai")
                 self.chat_area.insert(tk.END, hint + "\n", "content")
                 line_no = int(self.chat_area.index("end").split(".")[0])
-                self.chat_area.insert(tk.END, "⚠ 点击这里重新生成\n\n", "regen_link")
+                self.chat_area.insert(tk.END, "⚠ 点击这里重新生成\n", "regen_link")
                 self._regen_lines[(cid, -1)] = line_no
+                line2 = int(self.chat_area.index("end").split(".")[0])
+                self.chat_area.insert(
+                    tk.END, "✏ 编辑这条提问后重新发送\n\n", "regen_link")
+                self._edit_lines[(cid, -1)] = line2
             except Exception:
                 pass
             try: self.chat_area.config(state=tk.DISABLED)
@@ -5567,6 +5582,19 @@ class ChatApp:
             self._generating_cid = None
             self._set_send_enabled(True)
             self._update_floating_visibility()
+
+    def _finish_stopped(self, cid):
+        """用户主动停止：有内容就落库为「已中断」，否则提示已停止并提供重试。"""
+        state = self._pending.get(cid)
+        if state is None:
+            return
+        if (state.get("full") or "").strip():
+            state["interrupted"] = True
+            state["queue"] = []
+            state["stream_done"] = True
+            self._finish_typing_for(cid)
+        else:
+            self._handle_empty_response(cid, hint="（已停止生成）")
 
     def _on_safety_timeout(self, cid):
         state = self._pending.get(cid)
@@ -5639,9 +5667,9 @@ class ChatApp:
             state["interrupted"] = True
             state["queue"] = []
             state["stream_done"] = True
-            # 不等网络线程收尾，立即把已生成的内容落库
+            # 不等网络线程收尾，立即收尾（有内容落库、无内容提示可重试）
             try:
-                self.root.after(60, lambda c=cid: self._finish_typing_for(c)
+                self.root.after(80, lambda c=cid: self._finish_stopped(c)
                                 if c in self._pending else None)
             except tk.TclError:
                 pass
@@ -6250,6 +6278,10 @@ class ChatApp:
             threading.Thread(target=update_title, daemon=True).start()
 
         except Exception as e:
+            if cid in self._stop_flags:
+                # 用户点了「停止」：关闭流会让 SDK 抛连接错误，这里静默收尾
+                self.root.after(0, lambda c=cid: self._finish_stopped(c))
+                return
             err_msg = str(e)
             log_exc(f"call_api 异常 cid={cid[:8]}: {err_msg}")
 
