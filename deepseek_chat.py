@@ -3447,12 +3447,15 @@ class MessageRenderer:
                       and getattr(self.app, "show_reasoning", False)
                       and cid is not None and idx is not None)
         arrow = ("▼ " if expanded else "▶ ") if has_reason else ""
-        head = f"{arrow}已深度思考（用时 {float(elapsed):.1f} 秒）\n"
-        line_no = int(widget.index("end").split(".")[0])
-        widget.insert(tk.END, head, "think_head")
+        label = f"{arrow}已深度思考（用时 {float(elapsed):.1f} 秒）"
+        start = widget.index("end-1c")
+        widget.insert(tk.END, label + "\n", "think_head")
         if has_reason:
             try:
-                self.app._think_lines[(cid, idx)] = line_no
+                end = widget.index(f"{start} + {len(label)}c")
+                self.app._register_link(
+                    widget, start, end,
+                    lambda c=cid, i=idx: self.app.toggle_reasoning(c, i))
             except Exception:
                 pass
         widget.insert(tk.END, "\n", "content")
@@ -4333,9 +4336,7 @@ class ChatApp:
         self.password_required = bool(self.settings.get("password_required", True))
         self.reasoning_level = self.settings.get("reasoning_level", "默认")
         self._expanded_reasoning = set()
-        self._think_lines = {}
-        self._regen_lines = {}
-        self._edit_lines = {}
+        self._link_ranges = []          # [(start, end, callback)]，精确到字符范围
         self._stop_flags = set()
 
         self.renderer = MessageRenderer(self)
@@ -4408,28 +4409,38 @@ class ChatApp:
         except Exception:
             log_exc("保存设置失败")
 
-    def _on_chat_click(self, event):
-        """点击「已深度思考」那一行时展开 / 收起推理。"""
+    def _register_link(self, widget, start, end, callback):
+        """记录一段可点击文字（精确到字符区间）。"""
         try:
-            line = int(self.chat_area.index(f"@{event.x},{event.y}").split(".")[0])
+            self._link_ranges.append((str(start), str(end), callback))
+        except Exception:
+            pass
+
+    def _add_link(self, widget, text, callback, tag="regen_link"):
+        """插入一段可点击文字，返回其起始索引。"""
+        try:
+            start = widget.index("end-1c")
+            widget.insert(tk.END, text, tag)
+            end = widget.index(f"{start} + {len(text)}c")
+            self._register_link(widget, start, end, callback)
+            return start
+        except tk.TclError:
+            return None
+
+    def _on_chat_click(self, event):
+        """按字符区间精确命中可点击文字（重新生成 / 编辑提问 / 思考标题）。"""
+        try:
+            idx = self.chat_area.index(f"@{event.x},{event.y}")
         except Exception:
             return
-        cid = self.data.get("current_id")
-        for (c, i), ln in list(self._edit_lines.items()):
-            if c == cid and ln == line:
-                self.edit_last_question(c)
-                return "break"
-        for (c, i), ln in list(self._regen_lines.items()):
-            if c == cid and ln == line:
-                if i < 0:
-                    self.regenerate_last(c)
-                else:
-                    self.regenerate(c, i)
-                return "break"
-        for (c, i), ln in list(self._think_lines.items()):
-            if c == cid and ln == line:
-                self.toggle_reasoning(c, i)
-                return "break"
+        for start, end, callback in reversed(self._link_ranges):
+            try:
+                if (self.chat_area.compare(idx, ">=", start)
+                        and self.chat_area.compare(idx, "<", end)):
+                    callback()
+                    return "break"
+            except tk.TclError:
+                continue
 
     def toggle_reasoning(self, cid, idx):
         key = (cid, idx)
@@ -5563,13 +5574,12 @@ class ChatApp:
                 self.chat_area.insert(tk.END, self._conv_model_title(cid) + "\n",
                                       "name_ai")
                 self.chat_area.insert(tk.END, hint + "\n", "content")
-                line_no = int(self.chat_area.index("end").split(".")[0])
-                self.chat_area.insert(tk.END, "⚠ 点击这里重新生成\n", "regen_link")
-                self._regen_lines[(cid, -1)] = line_no
-                line2 = int(self.chat_area.index("end").split(".")[0])
-                self.chat_area.insert(
-                    tk.END, "✏ 编辑这条提问后重新发送\n\n", "regen_link")
-                self._edit_lines[(cid, -1)] = line2
+                self._add_link(self.chat_area, "⚠ 点击这里重新生成",
+                               lambda c=cid: self.regenerate_last(c))
+                self.chat_area.insert(tk.END, "\n", "content")
+                self._add_link(self.chat_area, "✏ 编辑这条提问后重新发送",
+                               lambda c=cid: self.edit_last_question(c))
+                self.chat_area.insert(tk.END, "\n\n", "content")
             except Exception:
                 pass
             try: self.chat_area.config(state=tk.DISABLED)
@@ -5907,9 +5917,7 @@ class ChatApp:
         self.chat_area.config(state=tk.NORMAL)
         try:
             self.chat_area.delete("1.0", tk.END)
-            self._think_lines.clear()
-            self._regen_lines.clear()
-            self._edit_lines.clear()
+            self._link_ranges.clear()
 
             if cid in self.data["conversations"]:
                 for msg_idx, m in enumerate(
@@ -5939,16 +5947,14 @@ class ChatApp:
                         if m.get("interrupted"):
                             try:
                                 self._ensure_block_start()
-                                line_no = int(self.chat_area.index("end").split(".")[0])
-                                self.chat_area.insert(
-                                    tk.END, "⚠ 生成已中断 · 点击这里重新生成\n",
-                                    "regen_link")
-                                self._regen_lines[(cid, msg_idx)] = line_no
-                                line2 = int(self.chat_area.index("end").split(".")[0])
-                                self.chat_area.insert(
-                                    tk.END, "✏ 编辑这条提问后重新发送\n\n",
-                                    "regen_link")
-                                self._edit_lines[(cid, msg_idx)] = line2
+                                self._add_link(
+                                    self.chat_area, "⚠ 生成已中断 · 点击这里重新生成",
+                                    lambda c=cid, i=msg_idx: self.regenerate(c, i))
+                                self.chat_area.insert(tk.END, "\n", "content")
+                                self._add_link(
+                                    self.chat_area, "✏ 编辑这条提问后重新发送",
+                                    lambda c=cid: self.edit_last_question(c))
+                                self.chat_area.insert(tk.END, "\n\n", "content")
                             except tk.TclError:
                                 pass
 
