@@ -5013,6 +5013,9 @@ class ChatApp:
             return
         if msgs[-1].get("role") != "user":
             return
+        # 先重载一次：清掉上一次失败留下的临时提示块，避免越堆越多
+        self.data["current_id"] = cid
+        self.load_conversation(cid)
         self._generating_cid = cid
         self._set_send_enabled(False)
         self._update_floating_visibility()
@@ -5229,7 +5232,8 @@ class ChatApp:
                     except tk.TclError: pass
                     state["think_start_idx"] = self.chat_area.index("end")
                     self._ensure_block_start()
-                    self.chat_area.insert(tk.END, AI_DISPLAY_NAME + "\n", "thinking_name")
+                    self.chat_area.insert(tk.END, self._conv_model_title(cid) + "\n",
+                                          "thinking_name")
                     line_start = self.chat_area.index("end-1c")
                     state["think_line_start"] = line_start
                     placeholder = self._think_label(THINKING_FRAMES[0], 0.0)
@@ -5327,7 +5331,8 @@ class ChatApp:
                 inserted = False
                 try:
                     self._ensure_block_start()
-                    self.chat_area.insert(tk.END, AI_DISPLAY_NAME + "\n", "name_ai")
+                    self.chat_area.insert(tk.END, self._conv_model_title(cid) + "\n",
+                                          "name_ai")
                     if state.get("think_mode"):
                         head_text = (f"已深度思考（用时 {state['think_elapsed']:.1f} 秒）\n\n")
                         self.chat_area.insert(tk.END, head_text, "think_done")
@@ -5510,6 +5515,7 @@ class ChatApp:
             self._finish_typing_for(cid)
 
     def _handle_empty_response(self, cid, hint="（AI 未返回内容，请检查网络或 API 配置后重试）"):
+        self._stop_flags.discard(cid)
         state = self._pending.pop(cid, None)
         if state is None:
             if self._generating_cid == cid:
@@ -5543,7 +5549,8 @@ class ChatApp:
                 pass
             try:
                 self._ensure_block_start()
-                self.chat_area.insert(tk.END, AI_DISPLAY_NAME + "\n", "name_ai")
+                self.chat_area.insert(tk.END, self._conv_model_title(cid) + "\n",
+                                      "name_ai")
                 self.chat_area.insert(tk.END, hint + "\n", "content")
                 line_no = int(self.chat_area.index("end").split(".")[0])
                 self.chat_area.insert(tk.END, "⚠ 点击这里重新生成\n\n", "regen_link")
@@ -5886,7 +5893,8 @@ class ChatApp:
                                               "content_user")
                     elif m["role"] == "assistant":
                         self._ensure_block_start()
-                        self.chat_area.insert(tk.END, AI_DISPLAY_NAME + "\n", "name_ai")
+                        self.chat_area.insert(tk.END, self._conv_model_title(cid) + "\n",
+                                              "name_ai")
                         te = m.get("think_elapsed")
                         content = m.get("content") or ""
                         reasoning = m.get("reasoning") or ""
@@ -5925,7 +5933,8 @@ class ChatApp:
                     except tk.TclError: pass
                     state["think_start_idx"] = self.chat_area.index("end")
                     self._ensure_block_start()
-                    self.chat_area.insert(tk.END, AI_DISPLAY_NAME + "\n", "name_ai")
+                    self.chat_area.insert(tk.END, self._conv_model_title(cid) + "\n",
+                                          "name_ai")
                     if state["phase"] == "thinking":
                         line_start = self.chat_area.index("end-1c")
                         state["think_line_start"] = line_start
@@ -6153,6 +6162,7 @@ class ChatApp:
             return
         cfg = self.store.current_cfg()
         self._ensure_pending(cid)
+        self._stop_flags.discard(cid)          # 新的请求不再受上次停止影响
         first_chunk = [False]
         think_on = bool(self.composer.is_deep_think_on())
         try:
@@ -6275,6 +6285,15 @@ class ChatApp:
 
     def _conv_model(self, conv):
         return conv.get("model_id") or DEFAULT_MODEL_ID
+
+    def _conv_model_title(self, cid=None):
+        """当前对话所属模型的展示名（用于聊天区名称行）。"""
+        try:
+            conv = self.data["conversations"].get(cid or self.data.get("current_id")) or {}
+            cfg = MODELS_BY_ID.get(self._conv_model(conv))
+            return model_title(cfg) if cfg else AI_DISPLAY_NAME
+        except Exception:
+            return AI_DISPLAY_NAME
 
     def _is_read_only(self, cid=None):
         """查看其他模型的对话时只读。"""
